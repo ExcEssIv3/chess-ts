@@ -1,4 +1,5 @@
 import { createBoard, type ChessboardInstance } from "./ui/board";
+import { updateDebugPanel } from "./ui/debugPanel";
 import type { EngineCommand, EngineEvent } from "./worker/protocol";
 import { START_FEN } from "./worker/protocol";
 
@@ -23,16 +24,19 @@ worker.onmessage = (e: MessageEvent<EngineEvent>) => {
           sendCommand({ type: "userMove", from, to });
         },
       });
+      updateDebugPanel(currentFen);
       break;
 
     case "reset":
       currentFen = event.fen;
       board?.position(currentFen);
+      updateDebugPanel(currentFen);
       break;
 
     case "moveApplied":
       currentFen = event.fen;
       board?.position(currentFen);
+      updateDebugPanel(currentFen);
       if (event.by === "user") {
         sendCommand({ type: "go", movetimeMs: 1000 });
       }

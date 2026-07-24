@@ -18,11 +18,36 @@
         display: block;
         margin: 0 auto 20px;
       }
+      #debug-panel {
+        width: 400px;
+        margin: 0 auto 20px;
+        font-family: monospace;
+        font-size: 13px;
+        border-collapse: collapse;
+      }
+      #debug-panel td {
+        padding: 2px 8px;
+        border: 1px solid #ccc;
+      }
+      #debug-panel td:first-child {
+        font-weight: bold;
+        white-space: nowrap;
+      }
     </style>
   </head>
   <body>
     <button id="reset-button" type="button">Reset Board</button>
     <div id="board"></div>
+    <table id="debug-panel">
+      <tbody>
+        <tr><td>Turn</td><td id="debug-turn"></td></tr>
+        <tr><td>Castling</td><td id="debug-castling"></td></tr>
+        <tr><td>En passant</td><td id="debug-en-passant"></td></tr>
+        <tr><td>Halfmove clock</td><td id="debug-halfmove"></td></tr>
+        <tr><td>Fullmove number</td><td id="debug-fullmove"></td></tr>
+        <tr><td>FEN</td><td id="debug-fen"></td></tr>
+      </tbody>
+    </table>
     <script
       src="https://code.jquery.com/jquery-3.7.1.min.js"
       integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="

@@ -29,9 +29,9 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
         }
         if (canMove) {
             if (evaluateKingDanger !== undefined && evaluateKingDanger === false) return true;
-            const newBoard = new Board(board.convertFen()); 
+            const newBoard = new Board(board.convertFen());
             newBoard.move(start, finish);
-            return checkDanger(newBoard, newBoard.wKing, false);
+            return !checkDanger(newBoard, newBoard.wKing, false);
         }
     } else {
         if (!board.andBlack(start)) return false;
@@ -51,9 +51,9 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
         }
         if (canMove) {
             if (evaluateKingDanger !== undefined && evaluateKingDanger === false) return true;
-            const newBoard = new Board(board.convertFen()); 
+            const newBoard = new Board(board.convertFen());
             newBoard.move(start, finish);
-            return checkDanger(newBoard, newBoard.bKing, true);
+            return !checkDanger(newBoard, newBoard.bKing, true);
         }
     }
 
