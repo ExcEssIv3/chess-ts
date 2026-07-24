@@ -44,10 +44,10 @@ self.onmessage = (e: MessageEvent<EngineCommand>) => {
           depth: cmd.depth,
           movetimeMs: cmd.movetimeMs,
         });
-        const [from, to] = [move.slice(0, 2), move.slice(2, 4)];
-        const result = applyMove(currentFen, from, to);
+        const [from, to, promotion] = [move.slice(0, 2), move.slice(2, 4), move.slice(4) || undefined];
+        const result = applyMove(currentFen, from, to, promotion);
         currentFen = result.fen;
-        post({ type: "moveApplied", fen: currentFen, from, to, by: "engine" });
+        post({ type: "moveApplied", fen: currentFen, from, to, promotion, by: "engine" });
         break;
       }
 

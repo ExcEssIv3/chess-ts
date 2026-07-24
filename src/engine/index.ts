@@ -4,10 +4,12 @@
 
 import { Board } from "./board";
 import { evaluateLegal } from "./legality";
-import { isPromotionPieceChar } from "./types";
-import { algebraicToSquare, squareToBit } from "./utils";
+import { findLegalMoves } from "./movegen";
+import { isPromotionPieceChar, type PromotionPieceChar } from "./types";
+import { algebraicToSquare, bitToSquare, getRankFromBit, squareToAlgebraic, squareToBit } from "./utils";
 
 export class IllegalMoveError extends Error {}
+export class NoLegalMovesError extends Error {}
 
 export interface MoveResult {
   fen: string;
@@ -44,5 +46,56 @@ export interface SearchResult {
 }
 
 export function findBestMove(_fen: string, _options: SearchOptions): SearchResult {
-  throw new Error("not implemented: findBestMove");
+  const board = new Board(_fen);
+  const legalMoves = findLegalMoves(board);
+  if (legalMoves.length === 0) {
+    throw new NoLegalMovesError("No legal moves available");
+  }
+  const move = legalMoves[
+    Math.floor(Math.random() * legalMoves.length)
+  ];
+  let promotion: PromotionPieceChar | undefined = undefined;
+  if (board.whiteToMove) {
+    if ((board.wPawns & move[0]) > 0n && getRankFromBit(move[1]) === 7n) {
+      const promoteTo = Math.floor(Math.random() * 4);
+      switch (promoteTo) {
+        case 0:
+          promotion = 'N';
+          break;
+        case 1:
+          promotion = 'B';
+          break;
+        case 2:
+          promotion = 'R';
+          break;
+        case 3:
+          promotion = 'Q';
+          break;
+      }
+    }
+  } else {
+    if ((board.bPawns & move[0]) > 0n && getRankFromBit(move[1]) === 0n) {
+      const promoteTo = Math.floor(Math.random() * 4);
+      switch (promoteTo) {
+        case 0:
+          promotion = 'n';
+          break;
+        case 1:
+          promotion = 'b';
+          break;
+        case 2:
+          promotion = 'r';
+          break;
+        case 3:
+          promotion = 'q';
+          break;
+      }
+    }
+  }
+  const from = squareToAlgebraic(Number(bitToSquare(move[0])));
+  const to = squareToAlgebraic(Number(bitToSquare(move[1])));
+  board.move(move[0], move[1], promotion);
+  return {
+    move: from + to + (promotion ?? "")
+  }
 }
