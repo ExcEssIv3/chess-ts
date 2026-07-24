@@ -1,4 +1,4 @@
-import { createBoard, flipOrientation, type ChessboardInstance } from "./ui/board";
+import { createBoard, flipOrientation, pieceIconUrl, type ChessboardInstance } from "./ui/board";
 import { updateDebugPanel } from "./ui/debugPanel";
 import type { EngineCommand, EngineEvent } from "./worker/protocol";
 import { START_FEN } from "./worker/protocol";
@@ -56,6 +56,45 @@ function reportEngineThinkTime() {
   if (statusEl) statusEl.textContent = message;
 }
 
+// chessboard.js's `piece` format is a color+type pair, e.g. "wP", "bN".
+function isPromotionMove(piece: string, target: string): boolean {
+  if (piece[1]?.toLowerCase() !== "p") return false;
+  const targetRank = target[1];
+  return (piece[0] === "w" && targetRank === "8") || (piece[0] === "b" && targetRank === "1");
+}
+
+let pendingPromotion: { from: string; to: string; color: "w" | "b" } | null = null;
+
+function showPromotionPicker(color: "w" | "b") {
+  const picker = document.getElementById("promotion-picker");
+  picker?.querySelectorAll<HTMLButtonElement>("button[data-piece]").forEach((button) => {
+    const piece = button.dataset.piece;
+    const img = button.querySelector("img");
+    if (piece && img) img.src = pieceIconUrl(color + piece.toUpperCase());
+  });
+  picker?.classList.remove("hidden");
+}
+
+function hidePromotionPicker() {
+  document.getElementById("promotion-picker")?.classList.add("hidden");
+}
+
+document.getElementById("promotion-picker")?.addEventListener("click", (e) => {
+  const button = (e.target as HTMLElement).closest("button");
+  const piece = button?.dataset.piece;
+  if (!piece || !pendingPromotion) return;
+  const { from, to, color } = pendingPromotion;
+  pendingPromotion = null;
+  hidePromotionPicker();
+  sendCommand({ type: "userMove", from, to, promotion: color === "w" ? piece.toUpperCase() : piece });
+});
+
+document.getElementById("promotion-cancel")?.addEventListener("click", () => {
+  pendingPromotion = null;
+  hidePromotionPicker();
+  board?.position(currentFen);
+});
+
 worker.onmessage = (e: MessageEvent<EngineEvent>) => {
   const event = e.data;
   switch (event.type) {
@@ -64,7 +103,13 @@ worker.onmessage = (e: MessageEvent<EngineEvent>) => {
       board = createBoard({
         containerId: "board",
         orientation: currentOrientation,
-        onUserMove: (from, to) => {
+        onUserMove: (from, to, piece) => {
+          if (isPromotionMove(piece, to)) {
+            const color = piece[0] as "w" | "b";
+            pendingPromotion = { from, to, color };
+            showPromotionPicker(color);
+            return;
+          }
           sendCommand({ type: "userMove", from, to });
         },
         onDragStart: (_source, piece) => {
@@ -127,6 +172,13 @@ document.getElementById("engine-toggle")?.addEventListener("change", (e) => {
 document.getElementById("side-select")?.addEventListener("change", (e) => {
   userSide = (e.target as HTMLSelectElement).value as "w" | "b";
   sendCommand({ type: "newGame" });
+});
+
+document.getElementById("fen-form")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  const input = document.getElementById("fen-input") as HTMLInputElement | null;
+  const fen = input?.value.trim();
+  if (fen) sendCommand({ type: "setFen", fen });
 });
 
 sendCommand({ type: "init" });

@@ -1,6 +1,7 @@
 import type { EngineCommand, EngineEvent } from "./protocol";
 import { START_FEN } from "./protocol";
 import { applyMove, findBestMove, IllegalMoveError } from "../engine";
+import { Board } from "../engine/board";
 
 let currentFen: string = START_FEN;
 
@@ -14,6 +15,13 @@ self.onmessage = (e: MessageEvent<EngineCommand>) => {
 
       case "newGame":
         currentFen = START_FEN;
+        post({ type: "reset", fen: currentFen });
+        break;
+
+      case "setFen":
+        // round-trip through Board so a malformed FEN throws here (caught below)
+        // rather than corrupting currentFen with something later calls can't parse.
+        currentFen = new Board(cmd.fen).convertFen();
         post({ type: "reset", fen: currentFen });
         break;
 

@@ -13,6 +13,7 @@ export type EngineCommand =
   | { type: "init" }
   | { type: "newGame" }
   | { type: "userMove"; from: Square; to: Square; promotion?: string }
+  | { type: "setFen"; fen: string }
   | { type: "go"; depth?: number; movetimeMs?: number }
   | { type: "stop" };
 

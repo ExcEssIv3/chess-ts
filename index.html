@@ -10,14 +10,46 @@
       href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
     />
     <style>
-      #board {
+      #board-wrapper {
         width: 400px;
         margin: 40px auto;
+        position: relative;
+      }
+      #board {
         transition: transform 0.15s ease-in, opacity 0.15s ease-in;
       }
       #board.flipping {
         transform: rotateY(90deg);
         opacity: 0;
+      }
+      #promotion-picker {
+        position: absolute;
+        top: 0;
+        left: 50%;
+        transform: translateX(-50%);
+        display: flex;
+        gap: 4px;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+        padding: 8px;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+        z-index: 10;
+      }
+      #promotion-picker.hidden {
+        display: none;
+      }
+      #promotion-picker button {
+        width: 44px;
+        height: 44px;
+        padding: 2px;
+        font-size: 16px;
+        font-weight: bold;
+        cursor: pointer;
+      }
+      #promotion-picker button img {
+        width: 100%;
+        height: 100%;
       }
       #reset-button {
         display: block;
@@ -31,6 +63,19 @@
         gap: 16px;
         font-family: sans-serif;
         font-size: 14px;
+      }
+      #fen-form {
+        width: 400px;
+        margin: 0 auto 20px;
+        display: flex;
+        gap: 8px;
+        font-family: sans-serif;
+        font-size: 14px;
+      }
+      #fen-input {
+        flex: 1;
+        font-family: monospace;
+        font-size: 13px;
       }
       #engine-status {
         width: 400px;
@@ -70,8 +115,21 @@
         </select>
       </label>
     </div>
+    <form id="fen-form">
+      <input type="text" id="fen-input" placeholder="Paste a FEN string..." autocomplete="off" />
+      <button type="submit">Load FEN</button>
+    </form>
     <div id="engine-status"></div>
-    <div id="board"></div>
+    <div id="board-wrapper">
+      <div id="board"></div>
+      <div id="promotion-picker" class="hidden">
+        <button type="button" data-piece="q"><img alt="Queen" /></button>
+        <button type="button" data-piece="r"><img alt="Rook" /></button>
+        <button type="button" data-piece="b"><img alt="Bishop" /></button>
+        <button type="button" data-piece="n"><img alt="Knight" /></button>
+        <button type="button" id="promotion-cancel">✕</button>
+      </div>
+    </div>
     <table id="debug-panel">
       <tbody>
         <tr><td>Turn</td><td id="debug-turn"></td></tr>

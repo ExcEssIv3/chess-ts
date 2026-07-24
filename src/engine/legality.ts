@@ -3,8 +3,11 @@ import { checkDanger } from "./movegen";
 import type { SquareInfo } from "./types";
 import { toSquareInfo } from "./utils";
 
-/** `start`/`finish` are bitmasks (a single set bit), not square indices — checked directly against board bitboards via `&`. */
-export function evaluateLegal(board: Board, start: bigint, finish: bigint, whiteToMove?: boolean, evaluateKingDanger?: boolean): boolean {
+/** `start`/`finish` are bitmasks (a single set bit), not square indices — checked directly against board bitboards via `&`. 
+ * evaluate king danger lets the function know if it needs to check if the move will put a king in danger, useful for when checking attacks
+ * evaluate pawn attacks only will mark pawn advancement moves (non attack moves) as not legal, only checks the way pawns take
+*/
+export function evaluateLegal(board: Board, start: bigint, finish: bigint, whiteToMove?: boolean, evaluateKingDanger?: boolean, evaluatePawnAttacksOnly?: boolean): boolean {
     const startInfo = toSquareInfo(start);
     const finishInfo = toSquareInfo(finish);
 
@@ -15,7 +18,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
         if (!board.andWhite(start)) return false;
         if (board.andWhite(finish)) return false;
         if ((board.wPawns & start) > 0) {
-            canMove = evaluatePawnMove(board, true, startInfo, finishInfo);
+            canMove = evaluatePawnMove(board, true, startInfo, finishInfo, evaluatePawnAttacksOnly);
         } else if ((board.wRooks & start) > 0) {
             canMove = evaluateRookMove(board, true, startInfo, finishInfo);
         } else if ((board.wKnights & start) > 0) {
@@ -37,7 +40,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
         if (!board.andBlack(start)) return false;
         if (board.andBlack(finish)) return false;
         if ((board.bPawns & start) > 0) {
-            canMove = evaluatePawnMove(board, false, startInfo, finishInfo);
+            canMove = evaluatePawnMove(board, false, startInfo, finishInfo, evaluatePawnAttacksOnly);
         } else if ((board.bRooks & start) > 0) {
             canMove = evaluateRookMove(board, false, startInfo, finishInfo);
         } else if ((board.bKnights & start) > 0) {
@@ -60,7 +63,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
     return false;
 }
 
-function evaluatePawnMove(board: Board, whiteToMove: boolean, start: SquareInfo, finish: SquareInfo): boolean {
+function evaluatePawnMove(board: Board, whiteToMove: boolean, start: SquareInfo, finish: SquareInfo, evaluatePawnAttacksOnly?: boolean): boolean {
     if (start.bit === finish.bit) return false;
     const fileDelta = Math.abs(Number(start.file - finish.file));
     if (fileDelta > 1) return false;
@@ -68,9 +71,10 @@ function evaluatePawnMove(board: Board, whiteToMove: boolean, start: SquareInfo,
         const rankDelta = Number(finish.rank - start.rank);
         if (fileDelta === 1) {
             if (rankDelta !== 1) return false;
+            if (evaluatePawnAttacksOnly) return true;
             if (board.enPassantSquare && board.enPassantSquare === Number(finish.square)) return true;
             return board.andBlack(finish.bit);
-        }
+        } else if (evaluatePawnAttacksOnly) return false;
         if (board.andBlack(finish.bit)) return false;
         if (rankDelta < 1 || rankDelta > 2) return false;
         if (rankDelta === 2) {
@@ -84,9 +88,10 @@ function evaluatePawnMove(board: Board, whiteToMove: boolean, start: SquareInfo,
     const rankDelta = Number(start.rank - finish.rank);
     if (fileDelta === 1) {
         if (rankDelta !== 1) return false;
+        if (evaluatePawnAttacksOnly) return true;
         if (board.enPassantSquare && board.enPassantSquare === Number(finish.square)) return true;
         return board.andWhite(finish.bit);
-    }
+    } else if (evaluatePawnAttacksOnly) return false;
     if (board.andWhite(finish.bit)) return false;
     if (rankDelta < 1 || rankDelta > 2) return false;
     if (rankDelta === 2) {

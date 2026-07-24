@@ -10,7 +10,7 @@ export interface ChessboardConfig {
   position?: string;
   orientation?: "white" | "black";
   pieceTheme?: string;
-  onDrop?: (source: string, target: string) => string | void;
+  onDrop?: (source: string, target: string, piece: string) => string | void;
   onDragStart?: (source: string, piece: string) => boolean | void;
 }
 
@@ -23,8 +23,15 @@ export interface ChessboardInstance {
 export interface CreateBoardOptions {
   containerId: string;
   orientation?: "white" | "black";
-  onUserMove: (from: string, to: string) => void;
+  /** `piece` is chessboard.js's own format: a color+type pair, e.g. "wP", "bN". */
+  onUserMove: (from: string, to: string, piece: string) => void;
   onDragStart?: (source: string, piece: string) => boolean;
+}
+
+// Same piece set chessboard.js renders on the board, reused for the
+// promotion picker so its icons match.
+export function pieceIconUrl(piece: string): string {
+  return `https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@1.0.0/website/img/chesspieces/wikipedia/${piece}.png`;
 }
 
 export function createBoard({ containerId, orientation, onUserMove, onDragStart }: CreateBoardOptions): ChessboardInstance {
@@ -32,12 +39,11 @@ export function createBoard({ containerId, orientation, onUserMove, onDragStart 
     draggable: true,
     position: "start",
     orientation,
-    pieceTheme:
-      "https://cdn.jsdelivr.net/gh/oakmac/chessboardjs@1.0.0/website/img/chesspieces/wikipedia/{piece}.png",
+    pieceTheme: pieceIconUrl("{piece}"),
     onDragStart,
-    onDrop: (source, target) => {
+    onDrop: (source, target, piece) => {
       if (source === target) return;
-      onUserMove(source, target);
+      onUserMove(source, target, piece);
     },
   });
 }
