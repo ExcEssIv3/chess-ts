@@ -7,11 +7,9 @@ import { toSquareInfo } from "./utils";
  * evaluate king danger lets the function know if it needs to check if the move will put a king in danger, useful for when checking attacks
  * evaluate pawn attacks only will mark pawn advancement moves (non attack moves) as not legal, only checks the way pawns take
 */
-export function evaluateLegal(board: Board, start: bigint, finish: bigint, whiteToMove?: boolean, evaluateKingDanger?: boolean, evaluatePawnAttacksOnly?: boolean): boolean {
+export function evaluateLegal(board: Board, start: bigint, finish: bigint, whiteToMove: boolean = board.whiteToMove, evaluateKingDanger: boolean = true, evaluatePawnAttacksOnly: boolean = false): boolean {
     const startInfo = toSquareInfo(start);
     const finishInfo = toSquareInfo(finish);
-
-    if (whiteToMove === undefined) whiteToMove = board.whiteToMove;
 
     let canMove = false;
     if (whiteToMove) {
@@ -31,7 +29,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
             canMove = evaluateKingMove(board, true, startInfo, finishInfo);
         }
         if (canMove) {
-            if (evaluateKingDanger !== undefined && evaluateKingDanger === false) return true;
+            if (!evaluateKingDanger) return true;
             const newBoard = new Board(board.convertFen());
             newBoard.move(start, finish);
             return !checkDanger(newBoard, newBoard.wKing, false);
@@ -53,7 +51,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
             canMove = evaluateKingMove(board, false, startInfo, finishInfo);
         }
         if (canMove) {
-            if (evaluateKingDanger !== undefined && evaluateKingDanger === false) return true;
+            if (!evaluateKingDanger) return true;
             const newBoard = new Board(board.convertFen());
             newBoard.move(start, finish);
             return !checkDanger(newBoard, newBoard.bKing, true);
@@ -63,7 +61,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
     return false;
 }
 
-function evaluatePawnMove(board: Board, whiteToMove: boolean, start: SquareInfo, finish: SquareInfo, evaluatePawnAttacksOnly?: boolean): boolean {
+function evaluatePawnMove(board: Board, whiteToMove: boolean, start: SquareInfo, finish: SquareInfo, evaluatePawnAttacksOnly: boolean = false): boolean {
     if (start.bit === finish.bit) return false;
     const fileDelta = Math.abs(Number(start.file - finish.file));
     if (fileDelta > 1) return false;

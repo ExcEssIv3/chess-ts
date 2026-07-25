@@ -62,6 +62,7 @@ export function bitmaskToSquareArray(mask: bigint): SquareInfo[] {
     const squares: SquareInfo[] = [];
     let bitIndex = 1n;
     for (let i = 0n; i < 64n; i++) {
+        if (mask === 0n) break;
         if (bitIndex & mask) {
             squares.push({
                 bit: bitIndex,
@@ -69,6 +70,7 @@ export function bitmaskToSquareArray(mask: bigint): SquareInfo[] {
                 file: i % 8n,
                 rank: i / 8n
             });
+            mask &= ~bitIndex;
         }
         bitIndex <<= 1n;
     }
