@@ -209,24 +209,31 @@ export function checkQueenDanger(board: Board, square: bigint, whiteToMove: bool
     });
 }
 
+// A promoting pawn move (push or capture) is 4 distinct moves — one per
+// promotion piece — not one arbitrary choice, since search needs to weigh
+// them separately.
+function pushPawnMove(moves: bigint[][], from: bigint, to: bigint, isPromotion: boolean): void {
+    if (isPromotion) {
+        // ROOK
+        moves.push([from, to, 0n]);
+        // KNIGHT
+        moves.push([from, to, 1n]);
+        // BISHOP
+        moves.push([from, to, 2n]);
+        // QUEEN
+        moves.push([from, to, 3n]);
+    } else {
+        moves.push([from, to]);
+    }
+}
+
 export function findLegalMoves(board: Board): bigint[][] {
     const moves: bigint[][] = [];
     if (board.whiteToMove) {
         const pawns = bitmaskToSquareArray(board.wPawns);
         pawns.forEach(pawn => {
             if (evaluateLegal(board, pawn.bit, pawn.bit << 8n)) {
-                if (pawn.rank === 6n) {
-                    // ROOK
-                    moves.push([pawn.bit, pawn.bit << 8n, 0n]);                    
-                    // KNIGHT
-                    moves.push([pawn.bit, pawn.bit << 8n, 1n]);
-                    // BISHOP
-                    moves.push([pawn.bit, pawn.bit << 8n, 2n]);
-                    // QUEEN
-                    moves.push([pawn.bit, pawn.bit << 8n, 3n]);                    
-                } else {
-                    moves.push([pawn.bit, pawn.bit << 8n]);
-                }
+                pushPawnMove(moves, pawn.bit, pawn.bit << 8n, pawn.rank === 6n);
             }
             if (pawn.rank === 1n) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 16n)) {
@@ -235,12 +242,12 @@ export function findLegalMoves(board: Board): bigint[][] {
             }
             if (pawn.file > 0) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 7n)) {
-                    moves.push([pawn.bit, pawn.bit << 7n]);
+                    pushPawnMove(moves, pawn.bit, pawn.bit << 7n, pawn.rank === 6n);
                 }
             }
             if (pawn.file < 7) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 9n)) {
-                    moves.push([pawn.bit, pawn.bit << 9n]);
+                    pushPawnMove(moves, pawn.bit, pawn.bit << 9n, pawn.rank === 6n);
                 }
             }
         });
@@ -301,18 +308,7 @@ export function findLegalMoves(board: Board): bigint[][] {
         const pawns = bitmaskToSquareArray(board.bPawns);
         pawns.forEach(pawn => {
             if (evaluateLegal(board, pawn.bit, pawn.bit >> 8n)) {
-                if (pawn.rank === 1n) {
-                    // ROOK
-                    moves.push([pawn.bit, pawn.bit >> 8n, 0n]);                    
-                    // KNIGHT
-                    moves.push([pawn.bit, pawn.bit >> 8n, 1n]);
-                    // BISHOP
-                    moves.push([pawn.bit, pawn.bit >> 8n, 2n]);
-                    // QUEEN
-                    moves.push([pawn.bit, pawn.bit >> 8n, 3n]);                    
-                } else {
-                    moves.push([pawn.bit, pawn.bit >> 8n]);
-                }
+                pushPawnMove(moves, pawn.bit, pawn.bit >> 8n, pawn.rank === 1n);
             }
             if (pawn.rank === 6n) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 16n)) {
@@ -321,12 +317,12 @@ export function findLegalMoves(board: Board): bigint[][] {
             }
             if (pawn.file > 0) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 9n)) {
-                    moves.push([pawn.bit, pawn.bit >> 9n]);
+                    pushPawnMove(moves, pawn.bit, pawn.bit >> 9n, pawn.rank === 1n);
                 }
             }
             if (pawn.file < 7) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 7n)) {
-                    moves.push([pawn.bit, pawn.bit >> 7n]);
+                    pushPawnMove(moves, pawn.bit, pawn.bit >> 7n, pawn.rank === 1n);
                 }
             }
         });
