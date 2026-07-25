@@ -25,7 +25,25 @@ export class Board {
     fullmoveNumber: number = 1;
 
     constructor(fen: string) {
+        // TODO: validate the FEN before accepting it (exactly one king per
+        // side, at minimum) — applyFen currently accepts any piece placement
+        // string, and the pasted-FEN UI path is a real way to construct a
+        // Board with zero/two kings, which the eval function assumes can't
+        // happen for any position reached through legal play.
         this.applyFen(fen);
+    }
+
+    // Every field is an immutable primitive (bigint/boolean/number), so a
+    // field-by-field copy is already a full independent clone — no FEN
+    // serialize/reparse round trip needed, and no risk of shared mutable
+    // state with the original.
+    // TODO: for search, even this per-move allocation adds up — the further
+    // step is make/unmake (mutate this board in place for a trial move, then
+    // reverse exactly that mutation from a small saved snapshot) instead of
+    // cloning at all.
+    clone(): Board {
+        const board = Object.create(Board.prototype) as Board;
+        return Object.assign(board, this);
     }
 
     applyFen(fen: string): void {

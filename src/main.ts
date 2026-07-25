@@ -48,9 +48,9 @@ function maybeTriggerEngine() {
 
 function reportEngineThinkTime() {
   if (goSentAt === null) return;
-  const elapsed = Math.round(performance.now() - goSentAt);
+  const elapsedMicros = Math.round((performance.now() - goSentAt) * 1000);
   goSentAt = null;
-  const message = `Thought for ${elapsed} ms...`;
+  const message = `Thought for ${elapsedMicros.toLocaleString()} μs...`;
   console.log(message);
   const statusEl = document.getElementById("engine-status");
   if (statusEl) statusEl.textContent = message;

@@ -215,7 +215,18 @@ export function findLegalMoves(board: Board): bigint[][] {
         const pawns = bitmaskToSquareArray(board.wPawns);
         pawns.forEach(pawn => {
             if (evaluateLegal(board, pawn.bit, pawn.bit << 8n)) {
-                moves.push([pawn.bit, pawn.bit << 8n]);
+                if (pawn.rank === 6n) {
+                    // ROOK
+                    moves.push([pawn.bit, pawn.bit << 8n, 0n]);                    
+                    // KNIGHT
+                    moves.push([pawn.bit, pawn.bit << 8n, 1n]);
+                    // BISHOP
+                    moves.push([pawn.bit, pawn.bit << 8n, 2n]);
+                    // QUEEN
+                    moves.push([pawn.bit, pawn.bit << 8n, 3n]);                    
+                } else {
+                    moves.push([pawn.bit, pawn.bit << 8n]);
+                }
             }
             if (pawn.rank === 1n) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 16n)) {
@@ -290,7 +301,18 @@ export function findLegalMoves(board: Board): bigint[][] {
         const pawns = bitmaskToSquareArray(board.bPawns);
         pawns.forEach(pawn => {
             if (evaluateLegal(board, pawn.bit, pawn.bit >> 8n)) {
-                moves.push([pawn.bit, pawn.bit >> 8n]);
+                if (pawn.rank === 1n) {
+                    // ROOK
+                    moves.push([pawn.bit, pawn.bit >> 8n, 0n]);                    
+                    // KNIGHT
+                    moves.push([pawn.bit, pawn.bit >> 8n, 1n]);
+                    // BISHOP
+                    moves.push([pawn.bit, pawn.bit >> 8n, 2n]);
+                    // QUEEN
+                    moves.push([pawn.bit, pawn.bit >> 8n, 3n]);                    
+                } else {
+                    moves.push([pawn.bit, pawn.bit >> 8n]);
+                }
             }
             if (pawn.rank === 6n) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 16n)) {
@@ -370,7 +392,7 @@ export function findLegalMoves(board: Board): bigint[][] {
 // skipped here since the caller (saveRepetitiveMovements) already walked the
 // path itself and knows it's clear.
 function leavesKingSafe(board: Board, start: bigint, finish: bigint): boolean {
-    const newBoard = new Board(board.convertFen());
+    const newBoard = board.clone();
     newBoard.move(start, finish);
     return !checkDanger(newBoard, board.whiteToMove ? newBoard.wKing : newBoard.bKing, !board.whiteToMove);
 }

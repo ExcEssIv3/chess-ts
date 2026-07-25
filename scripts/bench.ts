@@ -15,7 +15,7 @@ function perft(board: Board, depth: number): number {
 
   let nodes = 0;
   for (const [from, to] of moves) {
-    const next = new Board(board.convertFen());
+    const next = board.clone();
     next.move(from, to);
     nodes += perft(next, depth - 1);
   }

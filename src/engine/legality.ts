@@ -30,7 +30,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
         }
         if (canMove) {
             if (!evaluateKingDanger) return true;
-            const newBoard = new Board(board.convertFen());
+            const newBoard = board.clone();
             newBoard.move(start, finish);
             return !checkDanger(newBoard, newBoard.wKing, false);
         }
@@ -52,7 +52,7 @@ export function evaluateLegal(board: Board, start: bigint, finish: bigint, white
         }
         if (canMove) {
             if (!evaluateKingDanger) return true;
-            const newBoard = new Board(board.convertFen());
+            const newBoard = board.clone();
             newBoard.move(start, finish);
             return !checkDanger(newBoard, newBoard.bKing, true);
         }
