@@ -158,20 +158,48 @@ function evaluateKingMove(board: Board, whiteToMove: boolean, start: SquareInfo,
     if (fileDelta === 2) {
         if (checkDanger(board, start.bit, !whiteToMove)) return false;
         if (whiteToMove) {
+            // kingside: only f1/g1 must be empty (h1 holds the rook itself)
             if (start.file - finish.file < 0) {
                 if (!((board.castlingRights & 1) > 0)) return false;
                 if (checkDanger(board, start.bit << 1n, !whiteToMove)) return false;
+                if (board.andWhite(start.bit << 1n)
+                    || board.andBlack(start.bit << 1n)
+                    || board.andWhite(start.bit << 2n)
+                    || board.andBlack(start.bit << 2n)
+                ) return false;
+            // queenside: b1/c1/d1 must be empty (b1 doesn't need to be check-safe, only vacant)
             } else {
                 if (!((board.castlingRights & 2) > 0)) return false;
                 if (checkDanger(board, start.bit >> 1n, !whiteToMove)) return false;
+                if (board.andWhite(start.bit >> 1n)
+                    || board.andBlack(start.bit >> 1n)
+                    || board.andWhite(start.bit >> 2n)
+                    || board.andBlack(start.bit >> 2n)
+                    || board.andWhite(start.bit >> 3n)
+                    || board.andBlack(start.bit >> 3n)
+                ) return false;
             }
         } else {
+            // kingside: only f8/g8 must be empty (h8 holds the rook itself)
             if (start.file - finish.file < 0) {
                 if (!((board.castlingRights & 4) > 0)) return false;
                 if (checkDanger(board, start.bit << 1n, !whiteToMove)) return false;
+                if (board.andWhite(start.bit << 1n)
+                    || board.andBlack(start.bit << 1n)
+                    || board.andWhite(start.bit << 2n)
+                    || board.andBlack(start.bit << 2n)
+                ) return false;
+            // queenside: b8/c8/d8 must be empty (b8 doesn't need to be check-safe, only vacant)
             } else {
                 if (!((board.castlingRights & 8) > 0)) return false;
                 if (checkDanger(board, start.bit >> 1n, !whiteToMove)) return false;
+                if (board.andWhite(start.bit >> 1n)
+                    || board.andBlack(start.bit >> 1n)
+                    || board.andWhite(start.bit >> 2n)
+                    || board.andBlack(start.bit >> 2n)
+                    || board.andWhite(start.bit >> 3n)
+                    || board.andBlack(start.bit >> 3n)
+                ) return false;
             }
         }
     }

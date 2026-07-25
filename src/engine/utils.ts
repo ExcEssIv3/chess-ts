@@ -1,13 +1,27 @@
 import type { SquareInfo } from "./types";
 
-/** bit (bitmask, single set bit) -> square (0-63 index) */
+/**
+ * bit (bitmask, single set bit) -> square (0-63 index).
+ *
+ * Binary search for the position of the set bit, entirely in bigint
+ * arithmetic (shifts/ANDs only) — no Number(bit)/Math.log2 round trip. Each
+ * step asks "is the set bit in the upper half of what's left" and shifts it
+ * down if so, halving the search space in 6 steps instead of a float log2 call.
+ */
 export function bitToSquare(bit: bigint): bigint {
-    return BigInt(Math.round(Math.log2(Number(bit))));
+    let square = 0n;
+    if (bit & 0xFFFFFFFF00000000n) { square += 32n; bit >>= 32n; }
+    if (bit & 0xFFFF0000n) { square += 16n; bit >>= 16n; }
+    if (bit & 0xFF00n) { square += 8n; bit >>= 8n; }
+    if (bit & 0xF0n) { square += 4n; bit >>= 4n; }
+    if (bit & 0xCn) { square += 2n; bit >>= 2n; }
+    if (bit & 0x2n) { square += 1n; }
+    return square;
 }
 
 /** square (0-63 index) -> bit (bitmask, single set bit) */
-export function squareToBit(square: number): bigint {
-    return 1n << BigInt(square);
+export function squareToBit(square: bigint): bigint {
+    return 1n << square;
 }
 
 /** takes/returns a square index, not a bit */

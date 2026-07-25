@@ -1,25 +1,212 @@
+import { BLACK_PAWN_ATTACKERS, KING_ATTACKS, KNIGHT_ATTACKS, WHITE_PAWN_ATTACKERS } from "./attacks";
+import { KING_OFFSETS, KNIGHT_OFFSETS } from "./attacks-generator";
 import { Board } from "./board";
 import { evaluateLegal } from "./legality";
-import { bitmaskToSquareArray, toSquareInfo } from "./utils";
+import { bitmaskToSquareArray, bitToSquare, getFileFromSquare, getRankFromSquare, squareToBit, toSquareInfo } from "./utils";
 
-// [fileDelta, rankDelta] pairs, checked against the board edge before use.
-const KNIGHT_OFFSETS: readonly [bigint, bigint][] = [
-    [1n, 2n], [2n, 1n], [2n, -1n], [1n, -2n],
-    [-1n, -2n], [-2n, -1n], [-2n, 1n], [-1n, 2n],
-];
-const KING_OFFSETS: readonly [bigint, bigint][] = [
-    [1n, 0n], [1n, 1n], [1n, -1n], [-1n, 0n],
-    [-1n, 1n], [-1n, -1n], [0n, 1n], [0n, -1n],
-];
-
-export function checkDanger(board: Board, square: bigint, whiteToMove: boolean): boolean {
-    // TODO: create a function with a better solution than looping through every square to find pieces
-    for (let i = 0n; i < 64n; i++) {
-        const bit = 1n << i;
-        if (evaluateLegal(board, bit, square, whiteToMove, false, true)) return true;
+export function checkDanger(board: Board, bit: bigint, whiteToMove: boolean): boolean {
+    const square = bitToSquare(bit);
+    const lookupSquare = Number(square);
+    if (whiteToMove) {
+        if ((board.wPawns & WHITE_PAWN_ATTACKERS[lookupSquare])) return true;
+        if ((board.wKnights & KNIGHT_ATTACKS[lookupSquare])) return true;
+        if ((board.wKing & KING_ATTACKS[lookupSquare])) return true;
+    } else {
+        if ((board.bPawns & BLACK_PAWN_ATTACKERS[lookupSquare])) return true;
+        if ((board.bKnights & KNIGHT_ATTACKS[lookupSquare])) return true;
+        if ((board.bKing & KING_ATTACKS[lookupSquare])) return true;
     }
 
+    if (checkRookDanger(board, square, whiteToMove)) return true;
+    if (checkBishopDanger(board, square, whiteToMove)) return true;
+    if (checkQueenDanger(board, square, whiteToMove)) return true;
+
     return false;
+}
+
+export function checkRookDanger(board: Board, square: bigint, whiteToMove: boolean): boolean {
+    const destinationBit = squareToBit(square);
+    const file = getFileFromSquare(square);
+    const rank = getRankFromSquare(square);
+    const rooks = bitmaskToSquareArray(whiteToMove ? board.wRooks : board.bRooks);
+
+    return rooks.some(rook => {
+        // aligned on file or rank, but not both — "both" means the rook is
+        // already sitting on the destination square, which isn't a real attack
+        const sameFile = rook.file === file;
+        const sameRank = rook.rank === rank;
+        if (!((sameFile || sameRank) && !(sameFile && sameRank))) return false;
+
+        let loc = rook.bit;
+        if (sameFile) {
+            const up = (rank - rook.rank) > 0;
+            while (loc !== destinationBit) {
+                loc <<= (up) ? 8n : -8n;
+                // same color as the rook blocks even at the destination (nothing to
+                // capture there); opposite color only blocks before the destination —
+                // landing on it is the attack itself.
+                if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+            }
+        } else {
+            const right = (file - rook.file) > 0;
+            while (loc !== destinationBit) {
+                loc <<= (right) ? 1n : -1n;
+                if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+            }
+        }
+        return true;
+    });
+}
+
+export function checkBishopDanger(board: Board, square: bigint, whiteToMove: boolean): boolean {
+    const destinationBit = squareToBit(square);
+    const file = getFileFromSquare(square);
+    const rank = getRankFromSquare(square);
+    const bishops = bitmaskToSquareArray(whiteToMove ? board.wBishops : board.bBishops);
+
+    return bishops.some(bishop=> {
+        if (file === bishop.file || rank === bishop.rank) return false;
+        const fileDelta = file - bishop.file;
+        const rankDelta = rank - bishop.rank;
+
+        if (!(fileDelta === rankDelta || -fileDelta === rankDelta)) return false;
+
+        let loc = bishop.bit;
+        if (fileDelta > 0) {
+            if (rankDelta > 0) {
+                while (loc !== destinationBit) {
+                    loc <<= 9n;
+                    // same color as the bishop blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            } else {
+                while (loc !== destinationBit) {
+                    loc >>= 7n;
+                    // same color as the bishop blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            }
+        } else {
+            if (rankDelta > 0) {
+                while (loc !== destinationBit) {
+                    loc <<= 7n;
+                    // same color as the bishop blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            } else {
+                while (loc !== destinationBit) {
+                    loc >>= 9n;
+                    // same color as the bishop blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            }
+        }
+        return true;
+    });
+}
+
+export function checkQueenDanger(board: Board, square: bigint, whiteToMove: boolean): boolean {
+    const destinationBit = squareToBit(square);
+    const file = getFileFromSquare(square);
+    const rank = getRankFromSquare(square);
+    const queens = bitmaskToSquareArray(whiteToMove ? board.wQueens : board.bQueens);
+
+    const straights = queens.some(queen => {
+        // aligned on file or rank, but not both — "both" means the queen is
+        // already sitting on the destination square, which isn't a real attack
+        const sameFile = queen.file === file;
+        const sameRank = queen.rank === rank;
+        if (!((sameFile || sameRank) && !(sameFile && sameRank))) return false;
+
+        let loc = queen.bit;
+        if (sameFile) {
+            const up = (rank - queen.rank) > 0;
+            while (loc !== destinationBit) {
+                loc <<= (up) ? 8n : -8n;
+                // same color as the queen blocks even at the destination (nothing to
+                // capture there); opposite color only blocks before the destination —
+                // landing on it is the attack itself.
+                if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+            }
+        } else {
+            const right = (file - queen.file) > 0;
+            while (loc !== destinationBit) {
+                loc <<= (right) ? 1n : -1n;
+                if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+            }
+        }
+        return true;
+    });
+
+    if (straights) return straights;
+
+    return queens.some(queen=> {
+        if (file === queen.file || rank === queen.rank) return false;
+        const fileDelta = file - queen.file;
+        const rankDelta = rank - queen.rank;
+
+        if (!(fileDelta === rankDelta || -fileDelta === rankDelta)) return false;
+
+        let loc = queen.bit;
+        if (fileDelta > 0) {
+            if (rankDelta > 0) {
+                while (loc !== destinationBit) {
+                    loc <<= 9n;
+                    // same color as the queen blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            } else {
+                while (loc !== destinationBit) {
+                    loc >>= 7n;
+                    // same color as the queen blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            }
+        } else {
+            if (rankDelta > 0) {
+                while (loc !== destinationBit) {
+                    loc <<= 7n;
+                    // same color as the queen blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            } else {
+                while (loc !== destinationBit) {
+                    loc >>= 9n;
+                    // same color as the queen blocks even at the destination (nothing to
+                    // capture there); opposite color only blocks before the destination —
+                    // landing on it is the attack itself.
+                    if (whiteToMove ? board.andWhite(loc) : board.andBlack(loc)) return false;
+                    if ((whiteToMove ? board.andBlack(loc) : board.andWhite(loc)) && loc !== destinationBit) return false;
+                }
+            }
+        }
+        return true;
+    });
 }
 
 export function findLegalMoves(board: Board): bigint[][] {

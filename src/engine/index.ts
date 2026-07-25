@@ -26,8 +26,8 @@ export function applyMove(
   }
 
   const board: Board = new Board(_fen);
-  const fromBit = squareToBit(algebraicToSquare(_from));
-  const toBit = squareToBit(algebraicToSquare(_to));
+  const fromBit = squareToBit(BigInt(algebraicToSquare(_from)));
+  const toBit = squareToBit(BigInt(algebraicToSquare(_to)));
   if (evaluateLegal(board, fromBit, toBit)) {
     board.move(fromBit, toBit, _promotion);
     return { fen: board.convertFen() };
