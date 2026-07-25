@@ -15,6 +15,7 @@ let currentFen = START_FEN;
 let board: ChessboardInstance | undefined;
 let engineEnabled = true;
 let userSide: "w" | "b" = "w";
+let searchDepth = 2;
 let currentOrientation: "white" | "black" = "white";
 
 function activeColor(fen: string): "w" | "b" {
@@ -31,9 +32,12 @@ function updateOrientation() {
   flipOrientation("board", board, side);
 }
 
-function updateSideSelectVisibility() {
-  const label = document.getElementById("side-select-label");
-  if (label) label.style.display = engineEnabled ? "" : "none";
+function updateEngineControlsVisibility() {
+  const display = engineEnabled ? "" : "none";
+  const sideLabel = document.getElementById("side-select-label");
+  if (sideLabel) sideLabel.style.display = display;
+  const depthLabel = document.getElementById("depth-select-label");
+  if (depthLabel) depthLabel.style.display = display;
 }
 
 let goSentAt: number | null = null;
@@ -42,15 +46,26 @@ function maybeTriggerEngine() {
   if (!engineEnabled) return;
   if (activeColor(currentFen) !== userSide) {
     goSentAt = performance.now();
-    sendCommand({ type: "go", movetimeMs: 1000 });
+    const statusEl = document.getElementById("engine-status");
+    if (statusEl) statusEl.textContent = "Thinking…";
+    sendCommand({ type: "go", movetimeMs: 1000, depth: searchDepth });
   }
+}
+
+// Picks whichever unit keeps the number readable — deeper searches can take
+// seconds, and showing that as "2,340,000 μs" is technically precise but
+// useless at a glance.
+function formatElapsed(elapsedMicros: number): string {
+  if (elapsedMicros < 1_000) return `${Math.round(elapsedMicros).toLocaleString()} μs`;
+  if (elapsedMicros < 1_000_000) return `${(elapsedMicros / 1_000).toFixed(2)} ms`;
+  return `${(elapsedMicros / 1_000_000).toFixed(2)} s`;
 }
 
 function reportEngineThinkTime() {
   if (goSentAt === null) return;
-  const elapsedMicros = Math.round((performance.now() - goSentAt) * 1000);
+  const elapsedMicros = (performance.now() - goSentAt) * 1000;
   goSentAt = null;
-  const message = `Thought for ${elapsedMicros.toLocaleString()} μs...`;
+  const message = `Thought for ${formatElapsed(elapsedMicros)}...`;
   console.log(message);
   const statusEl = document.getElementById("engine-status");
   if (statusEl) statusEl.textContent = message;
@@ -120,7 +135,7 @@ worker.onmessage = (e: MessageEvent<EngineEvent>) => {
         },
       });
       updateDebugPanel(currentFen);
-      updateSideSelectVisibility();
+      updateEngineControlsVisibility();
       break;
 
     case "reset":
@@ -164,7 +179,7 @@ document.getElementById("reset-button")?.addEventListener("click", () => {
 
 document.getElementById("engine-toggle")?.addEventListener("change", (e) => {
   engineEnabled = (e.target as HTMLInputElement).checked;
-  updateSideSelectVisibility();
+  updateEngineControlsVisibility();
   updateOrientation();
   maybeTriggerEngine();
 });
@@ -172,6 +187,10 @@ document.getElementById("engine-toggle")?.addEventListener("change", (e) => {
 document.getElementById("side-select")?.addEventListener("change", (e) => {
   userSide = (e.target as HTMLSelectElement).value as "w" | "b";
   sendCommand({ type: "newGame" });
+});
+
+document.getElementById("depth-select")?.addEventListener("change", (e) => {
+  searchDepth = parseInt((e.target as HTMLSelectElement).value, 10);
 });
 
 document.getElementById("fen-form")?.addEventListener("submit", (e) => {

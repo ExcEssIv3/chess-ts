@@ -1,20 +1,53 @@
-import type { SearchOptions, SearchResult } from ".";
+import type { SearchOptions } from ".";
 import type { Board } from "./board";
 import { PIECE_VALUES } from "./evaluation";
-import { findLegalMoves } from "./movegen";
-import type { PromotionPieceChar } from "./types";
-import { bitToSquare, squareToAlgebraic } from "./utils";
+import { checkDanger, findLegalMoves } from "./movegen";
+import { promotionCharFromCode } from "./utils";
 
-// Matches the promotion-code convention findLegalMoves pushes as a move's
-// optional 3rd element: 0=rook, 1=knight, 2=bishop, anything else=queen.
-function promotionCharFromCode(code: bigint, whiteToMove: boolean): PromotionPieceChar {
-    const letter = code === 0n ? "r" : code === 1n ? "n" : code === 2n ? "b" : "q";
-    return (whiteToMove ? letter.toUpperCase() : letter) as PromotionPieceChar;
+export interface SearchEvaluation {
+    move: bigint[] | null,
+    value: number
 }
 
 // TODO: honor _searchOptions.depth/movetimeMs once search goes beyond depth 1.
-export function search(board: Board, _searchOptions: SearchOptions): SearchResult {
+export function search(board: Board, _searchOptions: SearchOptions): SearchEvaluation {
     const legalMoves = findLegalMoves(board);
+
+    if (legalMoves.length === 0) {
+        if (checkDanger(board, board.whiteToMove ? board.wKing : board.bKing, board.whiteToMove)) {
+            return {
+                move: [],
+                value: -10000
+            };
+        } else return {
+            move: [],
+            value: 0
+        };
+    }
+    if (_searchOptions.depth) {
+        let maxMoveValue = -Infinity;
+        let bestMove: bigint[] | null = null;
+        for (const move of legalMoves) {
+            const searchBoard = board.clone();
+            searchBoard.move(move[0], move[1], (move.length > 2) ? promotionCharFromCode(move[2], board.whiteToMove) : undefined);
+            const searchEval = search(searchBoard, {
+                depth: _searchOptions.depth - 1,
+                movetimeMs: _searchOptions.movetimeMs
+            });
+            // negamax: searchEval.value is from the opponent's perspective
+            // (searchBoard's mover), so flip it to score this move from ours.
+            const evaluation = -searchEval.value;
+            if (evaluation > maxMoveValue) {
+                bestMove = move;
+                maxMoveValue = evaluation;
+            }
+        }
+
+        return {
+            move: bestMove,
+            value: maxMoveValue
+        };
+    }
     // evaluatePosition is always white-minus-black; flip perspective so
     // "higher is better for whoever's actually moving" holds for both sides.
     const perspective = board.whiteToMove ? 1 : -1;
@@ -33,13 +66,10 @@ export function search(board: Board, _searchOptions: SearchOptions): SearchResul
         }
     }
 
-    if (!bestMove) return { move: "" };
-    const from = squareToAlgebraic(Number(bitToSquare(bestMove[0])));
-    const to = squareToAlgebraic(Number(bitToSquare(bestMove[1])));
-    const promotion = bestMove.length === 3 ? promotionCharFromCode(bestMove[2], board.whiteToMove) : "";
     return {
-        move: from + to + promotion
-    };
+        move: bestMove,
+        value: maxMoveValue
+    }
 }
 
 // returns difference between black pieces and white pieces. negative is black

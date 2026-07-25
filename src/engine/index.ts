@@ -6,7 +6,7 @@ import { Board } from "./board";
 import { search } from "./engine";
 import { evaluateLegal } from "./legality";
 import { isPromotionPieceChar } from "./types";
-import { algebraicToSquare, squareToBit } from "./utils";
+import { algebraicToSquare, bitToSquare, promotionCharFromCode, squareToAlgebraic, squareToBit } from "./utils";
 
 export class IllegalMoveError extends Error {}
 export class NoLegalMovesError extends Error {}
@@ -47,5 +47,15 @@ export interface SearchResult {
 
 export function findBestMove(_fen: string, _options: SearchOptions): SearchResult {
   const board = new Board(_fen);
-  return search(board, _options);
+  const move = search(board, _options);
+
+  if (!move.move || move.move.length === 0) throw new NoLegalMovesError("No legal moves available");
+
+  const from = squareToAlgebraic(Number(bitToSquare(move.move[0])));
+  const to = squareToAlgebraic(Number(bitToSquare(move.move[1])));
+  const promotion = move.move.length === 3 ? promotionCharFromCode(move.move[2], board.whiteToMove) : "";
+  return {
+      move: from + to + promotion
+  };
 }
+

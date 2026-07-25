@@ -1,4 +1,4 @@
-import type { SquareInfo } from "./types";
+import type { PromotionPieceChar, SquareInfo } from "./types";
 
 /**
  * bit (bitmask, single set bit) -> square (0-63 index).
@@ -89,4 +89,11 @@ export function bitmaskToSquareArray(mask: bigint): SquareInfo[] {
         bitIndex <<= 1n;
     }
     return squares;
+}
+
+// Matches the promotion-code convention findLegalMoves pushes as a move's
+// optional 3rd element: 0=rook, 1=knight, 2=bishop, anything else=queen.
+export function promotionCharFromCode(code: bigint, whiteToMove: boolean): PromotionPieceChar {
+    const letter = code === 0n ? "r" : code === 1n ? "n" : code === 2n ? "b" : "q";
+    return (whiteToMove ? letter.toUpperCase() : letter) as PromotionPieceChar;
 }
