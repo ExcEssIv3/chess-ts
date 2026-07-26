@@ -47,7 +47,7 @@ export interface SearchResult {
 
 export function findBestMove(_fen: string, _options: SearchOptions): SearchResult {
   const board = new Board(_fen);
-  const move = search(board, _options);
+  const move = search(board, _options, -Infinity, Infinity);
 
   if (!move.move || move.move.length === 0) throw new NoLegalMovesError("No legal moves available");
 

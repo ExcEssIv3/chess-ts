@@ -10,7 +10,7 @@ export interface SearchEvaluation {
 }
 
 // TODO: honor _searchOptions.depth/movetimeMs once search goes beyond depth 1.
-export function search(board: Board, _searchOptions: SearchOptions): SearchEvaluation {
+export function search(board: Board, searchOptions: SearchOptions, alpha: number, beta: number): SearchEvaluation {
     const legalMoves = findLegalMoves(board);
 
     if (legalMoves.length === 0) {
@@ -24,22 +24,30 @@ export function search(board: Board, _searchOptions: SearchOptions): SearchEvalu
             value: 0
         };
     }
-    if (_searchOptions.depth) {
+    if (searchOptions.depth) {
         let maxMoveValue = -Infinity;
         let bestMove: bigint[] | null = null;
         for (const move of legalMoves) {
             const searchBoard = board.clone();
             searchBoard.move(move[0], move[1], (move.length > 2) ? promotionCharFromCode(move[2], board.whiteToMove) : undefined);
             const searchEval = search(searchBoard, {
-                depth: _searchOptions.depth - 1,
-                movetimeMs: _searchOptions.movetimeMs
-            });
+                    depth: searchOptions.depth - 1,
+                    movetimeMs: searchOptions.movetimeMs,
+                },
+                -beta,
+                -alpha
+            );
             // negamax: searchEval.value is from the opponent's perspective
             // (searchBoard's mover), so flip it to score this move from ours.
             const evaluation = -searchEval.value;
             if (evaluation > maxMoveValue) {
                 bestMove = move;
                 maxMoveValue = evaluation;
+            }
+            if (maxMoveValue > alpha) alpha = maxMoveValue;
+            if (alpha >= beta) return {
+                move: bestMove,
+                value: maxMoveValue
             }
         }
 
