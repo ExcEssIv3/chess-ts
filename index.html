@@ -18,6 +18,13 @@
       #board {
         transition: transform 0.15s ease-in, opacity 0.15s ease-in;
       }
+      /* chessboard.js drags pieces via touch events without calling
+         preventDefault, so without this the browser's native scroll
+         gesture fires at the same time as a drag on touch devices. */
+      #board .square-55d63,
+      #board .piece-417db {
+        touch-action: none;
+      }
       #board.flipping {
         transform: rotateY(90deg);
         opacity: 0;
