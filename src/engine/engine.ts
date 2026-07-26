@@ -2,6 +2,7 @@ import type { SearchOptions } from ".";
 import type { Board } from "./board";
 import { PIECE_VALUES } from "./evaluation";
 import { checkDanger, findLegalMoves } from "./movegen";
+import { BISHOP_MG, KING_MG, KNIGHT_MG, PAWN_MG, QUEEN_MG, ROOK_MG } from "./pieceSquareTables";
 import { promotionCharFromCode } from "./utils";
 
 export interface SearchEvaluation {
@@ -82,63 +83,82 @@ export function search(board: Board, searchOptions: SearchOptions, alpha: number
 
 // returns difference between black pieces and white pieces. negative is black
 export function evaluatePosition(board: Board): number {
-    // EXCLUDING KINGS: POSITIONS SHOULD ALWAYS HAVE KINGS
     const boardPositions = 
         board.wPawns
         + board.wRooks
         + board.wKnights
         + board.wBishops
         + board.wQueens
+        + board.wKing
         + board.bPawns
         + board.bRooks
         + board.bKnights
         + board.bBishops
-        + board.bQueens;
+        + board.bQueens
+        + board.bKing;
 
     const wPositions = 
         board.wPawns
         + board.wRooks
         + board.wKnights
         + board.wBishops
-        + board.wQueens;
+        + board.wQueens
+        + board.wKing;
     
     const bPositions = 
         board.bPawns
         + board.bRooks
         + board.bKnights
         + board.bBishops
-        + board.bQueens;
+        + board.bQueens
+        + board.bKing;
 
     let whiteTotal = 0;
     let blackTotal = 0;
+    let numIndex = 0;
     for (let i = 0n; i < 64n; i++) {
         if (boardPositions === 0n) break;
         const loc = 1n << i;
         if ((wPositions & loc) > 0) {
             if ((board.wPawns & loc) > 0) {
                 whiteTotal += PIECE_VALUES.P;
+                whiteTotal += PAWN_MG[numIndex];
             } else if ((board.wRooks & loc) > 0) {
                 whiteTotal += PIECE_VALUES.R;
+                whiteTotal += ROOK_MG[numIndex];
             } else if ((board.wKnights & loc) > 0) {
                 whiteTotal += PIECE_VALUES.N;
+                whiteTotal += KNIGHT_MG[numIndex];
             } else if ((board.wBishops & loc) > 0) {
                 whiteTotal += PIECE_VALUES.B;
-            } else {
+                whiteTotal += BISHOP_MG[numIndex];
+            } else if ((board.wQueens & loc) > 0) {
                 whiteTotal += PIECE_VALUES.Q;
+                whiteTotal += QUEEN_MG[numIndex];
+            } else {
+                whiteTotal += KING_MG[numIndex];
             }
         } else if ((bPositions & loc) > 0) {
             if ((board.bPawns & loc) > 0) {
                 blackTotal += PIECE_VALUES.P;
+                blackTotal += PAWN_MG[numIndex ^ 56];
             } else if ((board.bRooks & loc) > 0) {
                 blackTotal += PIECE_VALUES.R;
+                blackTotal += ROOK_MG[numIndex ^ 56];
             } else if ((board.bKnights & loc) > 0) {
                 blackTotal += PIECE_VALUES.N;
+                blackTotal += KNIGHT_MG[numIndex ^ 56];
             } else if ((board.bBishops & loc) > 0) {
                 blackTotal += PIECE_VALUES.B;
-            } else {
+                blackTotal += BISHOP_MG[numIndex ^ 56];
+            } else if ((board.bQueens & loc) > 0) {
                 blackTotal += PIECE_VALUES.Q;
+                blackTotal += QUEEN_MG[numIndex ^ 56];
+            } else {
+                blackTotal += KING_MG[numIndex ^ 56];
             }
         }
+        numIndex++;
     }
 
     return whiteTotal - blackTotal;
