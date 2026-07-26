@@ -1,4 +1,5 @@
 import { createBoard, flipOrientation, pieceIconUrl, type ChessboardInstance } from "./ui/board";
+import { updateCapturedPieces } from "./ui/capturedPieces";
 import { updateDebugPanel } from "./ui/debugPanel";
 import type { EngineCommand, EngineEvent } from "./worker/protocol";
 import { START_FEN } from "./worker/protocol";
@@ -135,6 +136,7 @@ worker.onmessage = (e: MessageEvent<EngineEvent>) => {
         },
       });
       updateDebugPanel(currentFen);
+      updateCapturedPieces(currentFen);
       updateEngineControlsVisibility();
       break;
 
@@ -142,6 +144,7 @@ worker.onmessage = (e: MessageEvent<EngineEvent>) => {
       currentFen = event.fen;
       board?.position(currentFen);
       updateDebugPanel(currentFen);
+      updateCapturedPieces(currentFen);
       updateOrientation();
       maybeTriggerEngine();
       break;
@@ -150,6 +153,7 @@ worker.onmessage = (e: MessageEvent<EngineEvent>) => {
       currentFen = event.fen;
       board?.position(currentFen);
       updateDebugPanel(currentFen);
+      updateCapturedPieces(currentFen);
       if (event.by === "engine") reportEngineThinkTime();
       updateOrientation();
       maybeTriggerEngine();
