@@ -209,55 +209,140 @@ export function checkQueenDanger(board: Board, square: bigint, whiteToMove: bool
     });
 }
 
+interface CaptureRanking {
+    queenCapture: bigint[][],
+    rookCapture: bigint[][],
+    bishopCapture: bigint[][],
+    knightCapture: bigint[][],
+    pawnCapture: bigint[][],
+    nothing: bigint[][]
+}
+
+function determineCaptureRank(
+    board: Board,
+    from: bigint,
+    to: bigint,
+    ranking: CaptureRanking,
+    promotion: bigint = -1n
+) {
+    const move = (promotion > -1n) ? [from, to, promotion] : [from, to];
+    if (board.whiteToMove) {
+        if (board.andBlack(to)) {
+            if ((board.bQueens & to) > 0) {
+                ranking.queenCapture.push(move);
+            } else if ((board.bRooks & to) > 0) {
+                ranking.rookCapture.push(move);
+            } else if ((board.bBishops & to) > 0) {
+                ranking.bishopCapture.push(move);
+            } else if ((board.bKnights & to) > 0) {
+                ranking.knightCapture.push(move);
+            } else if ((board.bPawns & to) > 0) {
+                ranking.pawnCapture.push(move);
+            } else {
+                ranking.nothing.push(move);
+            }
+        } else {
+            ranking.nothing.push(move);
+        }
+    } else {
+        if (board.andWhite(to)) {
+            if ((board.wQueens & to) > 0) {
+                ranking.queenCapture.push(move);
+            } else if ((board.wRooks & to) > 0) {
+                ranking.rookCapture.push(move);
+            } else if ((board.wBishops & to) > 0) {
+                ranking.bishopCapture.push(move);
+            } else if ((board.wKnights & to) > 0) {
+                ranking.knightCapture.push(move);
+            } else if ((board.wPawns & to) > 0) {
+                ranking.pawnCapture.push(move);
+            } else {
+                ranking.nothing.push(move);
+            }
+        } else {
+            ranking.nothing.push(move);
+        }
+    }
+}
+
+function repetitiveMovementCaptureRank(
+    moves: bigint[][],
+    board: Board,
+    ranking: CaptureRanking
+) {
+    for (let i = 0; i < moves.length; i++) {
+        // only the last step might take a piece
+        if (i < moves.length - 1) {
+            ranking.nothing.push(moves[i])
+        } else {
+            determineCaptureRank(board, moves[i][0], moves[i][1], ranking);
+        }
+    }
+}
+
 // A promoting pawn move (push or capture) is 4 distinct moves — one per
 // promotion piece — not one arbitrary choice, since search needs to weigh
 // them separately.
-function pushPawnMove(moves: bigint[][], from: bigint, to: bigint, isPromotion: boolean): void {
+function pushPawnMove(
+    board: Board,
+    from: bigint,
+    to: bigint,
+    isPromotion: boolean,
+    ranking: CaptureRanking
+): void {
     if (isPromotion) {
         // ROOK
-        moves.push([from, to, 0n]);
+        determineCaptureRank(board, from, to, ranking, 0n);
         // KNIGHT
-        moves.push([from, to, 1n]);
+        determineCaptureRank(board, from, to, ranking, 1n);
         // BISHOP
-        moves.push([from, to, 2n]);
+        determineCaptureRank(board, from, to, ranking, 2n);
         // QUEEN
-        moves.push([from, to, 3n]);
+        determineCaptureRank(board, from, to, ranking, 3n);
     } else {
-        moves.push([from, to]);
+        determineCaptureRank(board, from, to, ranking);
     }
 }
 
 export function findLegalMoves(board: Board): bigint[][] {
-    const moves: bigint[][] = [];
+    // want to know what big event a move causes for better ordering for pruning
+    const ranking: CaptureRanking = {
+        queenCapture: [],
+        rookCapture: [],
+        bishopCapture: [],
+        knightCapture: [],
+        pawnCapture: [],
+        nothing: []
+    }
     if (board.whiteToMove) {
         const pawns = bitmaskToSquareArray(board.wPawns);
         pawns.forEach(pawn => {
             if (evaluateLegal(board, pawn.bit, pawn.bit << 8n)) {
-                pushPawnMove(moves, pawn.bit, pawn.bit << 8n, pawn.rank === 6n);
+                pushPawnMove(board, pawn.bit, pawn.bit << 8n, pawn.rank === 6n, ranking);
             }
             if (pawn.rank === 1n) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 16n)) {
-                    moves.push([pawn.bit, pawn.bit << 16n]);
+                    determineCaptureRank(board, pawn.bit, pawn.bit << 16n, ranking);
                 }
             }
             if (pawn.file > 0) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 7n)) {
-                    pushPawnMove(moves, pawn.bit, pawn.bit << 7n, pawn.rank === 6n);
+                    pushPawnMove(board, pawn.bit, pawn.bit << 7n, pawn.rank === 6n, ranking);
                 }
             }
             if (pawn.file < 7) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit << 9n)) {
-                    pushPawnMove(moves, pawn.bit, pawn.bit << 9n, pawn.rank === 6n);
+                    pushPawnMove(board, pawn.bit, pawn.bit << 9n, pawn.rank === 6n, ranking);
                 }
             }
         });
 
         const rooks = bitmaskToSquareArray(board.wRooks);
         rooks.forEach(rook => {
-            moves.push(...saveRepetitiveMovements(board, rook.bit, 1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, rook.bit, 0n, 1n));
-            moves.push(...saveRepetitiveMovements(board, rook.bit, -1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, rook.bit, 0n, -1n));
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, 1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, 0n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, -1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, 0n, -1n), board, ranking);
         });
 
         const knights = bitmaskToSquareArray(board.wKnights);
@@ -268,16 +353,16 @@ export function findLegalMoves(board: Board): bigint[][] {
                 if (targetFile < 0n || targetFile > 7n || targetRank < 0n || targetRank > 7n) return;
 
                 const target = knight.bit << (rankDelta * 8n + fileDelta);
-                if (evaluateLegal(board, knight.bit, target)) moves.push([knight.bit, target]);
+                if (evaluateLegal(board, knight.bit, target)) determineCaptureRank(board, knight.bit, target, ranking);
             });
         });
 
         const bishops = bitmaskToSquareArray(board.wBishops);
         bishops.forEach(bishop => {
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, 1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, 1n, 1n));
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, -1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, -1n, 1n));
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, 1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, 1n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, -1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, -1n, 1n), board, ranking);
         })
 
         const king = toSquareInfo(board.wKing);
@@ -287,52 +372,52 @@ export function findLegalMoves(board: Board): bigint[][] {
             if (targetFile < 0n || targetFile > 7n || targetRank < 0n || targetRank > 7n) return;
 
             const target = king.bit << (rankDelta * 8n + fileDelta);
-            if (evaluateLegal(board, king.bit, target)) moves.push([king.bit, target]);
+            if (evaluateLegal(board, king.bit, target)) determineCaptureRank(board, king.bit, target, ranking);
         });
         // kingside (toward the h-file) increases file index, queenside decreases it.
-        if ((board.castlingRights & 1) > 0 && evaluateLegal(board, king.bit, king.bit << 2n)) moves.push([king.bit, king.bit << 2n]);
-        if ((board.castlingRights & 2) > 0 && evaluateLegal(board, king.bit, king.bit >> 2n)) moves.push([king.bit, king.bit >> 2n]);
+        if ((board.castlingRights & 1) > 0 && evaluateLegal(board, king.bit, king.bit << 2n)) determineCaptureRank(board, king.bit, king.bit << 2n, ranking);
+        if ((board.castlingRights & 2) > 0 && evaluateLegal(board, king.bit, king.bit >> 2n)) determineCaptureRank(board, king.bit, king.bit >> 2n, ranking);
 
         const queens = bitmaskToSquareArray(board.wQueens);
         queens.forEach(queen => {
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 0n, 1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, -1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 0n, -1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 1n, 1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, -1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, -1n, 1n));
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 0n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, -1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 0n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 1n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, -1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, -1n, 1n), board, ranking);
         })
     } else {
         const pawns = bitmaskToSquareArray(board.bPawns);
         pawns.forEach(pawn => {
             if (evaluateLegal(board, pawn.bit, pawn.bit >> 8n)) {
-                pushPawnMove(moves, pawn.bit, pawn.bit >> 8n, pawn.rank === 1n);
+                pushPawnMove(board, pawn.bit, pawn.bit >> 8n, pawn.rank === 1n, ranking);
             }
             if (pawn.rank === 6n) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 16n)) {
-                    moves.push([pawn.bit, pawn.bit >> 16n]);
+                    determineCaptureRank(board, pawn.bit, pawn.bit >> 16n, ranking);
                 }
             }
             if (pawn.file > 0) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 9n)) {
-                    pushPawnMove(moves, pawn.bit, pawn.bit >> 9n, pawn.rank === 1n);
+                    pushPawnMove(board, pawn.bit, pawn.bit >> 9n, pawn.rank === 1n, ranking);
                 }
             }
             if (pawn.file < 7) {
                 if (evaluateLegal(board, pawn.bit, pawn.bit >> 7n)) {
-                    pushPawnMove(moves, pawn.bit, pawn.bit >> 7n, pawn.rank === 1n);
+                    pushPawnMove(board, pawn.bit, pawn.bit >> 7n, pawn.rank === 1n, ranking);
                 }
             }
         });
 
         const rooks = bitmaskToSquareArray(board.bRooks);
         rooks.forEach(rook => {
-            moves.push(...saveRepetitiveMovements(board, rook.bit, 1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, rook.bit, 0n, 1n));
-            moves.push(...saveRepetitiveMovements(board, rook.bit, -1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, rook.bit, 0n, -1n));
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, 1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, 0n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, -1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, rook.bit, 0n, -1n), board, ranking);
         });
 
         const knights = bitmaskToSquareArray(board.bKnights);
@@ -343,16 +428,16 @@ export function findLegalMoves(board: Board): bigint[][] {
                 if (targetFile < 0n || targetFile > 7n || targetRank < 0n || targetRank > 7n) return;
 
                 const target = knight.bit << (rankDelta * 8n + fileDelta);
-                if (evaluateLegal(board, knight.bit, target)) moves.push([knight.bit, target]);
+                if (evaluateLegal(board, knight.bit, target)) determineCaptureRank(board, knight.bit, target, ranking);
             });
         });
 
         const bishops = bitmaskToSquareArray(board.bBishops);
         bishops.forEach(bishop => {
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, 1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, 1n, 1n));
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, -1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, bishop.bit, -1n, 1n));
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, 1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, 1n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, -1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, bishop.bit, -1n, 1n), board, ranking);
         })
 
         const king = toSquareInfo(board.bKing);
@@ -362,24 +447,31 @@ export function findLegalMoves(board: Board): bigint[][] {
             if (targetFile < 0n || targetFile > 7n || targetRank < 0n || targetRank > 7n) return;
 
             const target = king.bit << (rankDelta * 8n + fileDelta);
-            if (evaluateLegal(board, king.bit, target)) moves.push([king.bit, target]);
+            if (evaluateLegal(board, king.bit, target)) determineCaptureRank(board, king.bit, target, ranking);
         });
         // kingside (toward the h-file) increases file index, queenside decreases it.
-        if ((board.castlingRights & 4) > 0 && evaluateLegal(board, king.bit, king.bit << 2n)) moves.push([king.bit, king.bit << 2n]);
-        if ((board.castlingRights & 8) > 0 && evaluateLegal(board, king.bit, king.bit >> 2n)) moves.push([king.bit, king.bit >> 2n]);
+        if ((board.castlingRights & 4) > 0 && evaluateLegal(board, king.bit, king.bit << 2n)) determineCaptureRank(board, king.bit, king.bit << 2n, ranking);
+        if ((board.castlingRights & 8) > 0 && evaluateLegal(board, king.bit, king.bit >> 2n)) determineCaptureRank(board, king.bit, king.bit >> 2n, ranking);
 
         const queens = bitmaskToSquareArray(board.bQueens);
         queens.forEach(queen => {
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 0n, 1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, -1n, 0n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 0n, -1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, 1n, 1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, -1n, -1n));
-            moves.push(...saveRepetitiveMovements(board, queen.bit, -1n, 1n));
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 0n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, -1n, 0n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 0n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, 1n, 1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, -1n, -1n), board, ranking);
+            repetitiveMovementCaptureRank(saveRepetitiveMovements(board, queen.bit, -1n, 1n), board, ranking);
         })
     }
+    const moves: bigint[][] = [];
+    moves.push(...ranking.queenCapture);
+    moves.push(...ranking.rookCapture);
+    moves.push(...ranking.bishopCapture);
+    moves.push(...ranking.knightCapture);
+    moves.push(...ranking.pawnCapture);
+    moves.push(...ranking.nothing);
 
     return moves;
 }
