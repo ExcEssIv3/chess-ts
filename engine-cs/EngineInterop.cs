@@ -44,24 +44,31 @@ public static partial class EngineInterop
     }
 
     /// <summary>
-    /// Searches `fen` to `depth` plies (0/negative means "no recursion",
-    /// matching the TS engine's `depth` being left undefined) and returns the
-    /// best move in algebraic form, e.g. "e2e4" or "e7e8q" (lowercase
-    /// promotion letter, uppercase-vs-lowercase determined by the mover's
-    /// color via Utils.PromotionCharFromCode). Throws NoLegalMovesError
-    /// (propagated to JS as a catchable exception) if there is no legal move.
+    /// Searches `fen` and returns the best move in algebraic form, e.g.
+    /// "e2e4" or "e7e8q" (lowercase promotion letter, uppercase-vs-lowercase
+    /// determined by the mover's color via Utils.PromotionCharFromCode).
+    /// If `movetimeMs` is positive, iterative deepening runs until that time
+    /// budget elapses (see Search.RunIterative) and `depth` is ignored.
+    /// Otherwise searches a fixed `depth` plies (0/negative means "no
+    /// recursion", matching the TS engine's `depth` being left undefined).
+    /// Throws NoLegalMovesError (propagated to JS as a catchable exception)
+    /// if there is no legal move.
     /// </summary>
     [JSExport]
     internal static string FindBestMove(string fen, int depth, int movetimeMs)
     {
         var board = new Board(fen);
-        var options = new SearchOptions
-        {
-            Depth = depth > 0 ? depth : null,
-            MovetimeMs = movetimeMs > 0 ? movetimeMs : null,
-        };
 
-        var result = Search.Run(board, options, -Infinity, Infinity);
+        SearchEvaluation result;
+        if (movetimeMs > 0)
+        {
+            result = Search.RunIterative(board, new SearchOptions { MovetimeMs = movetimeMs });
+        }
+        else
+        {
+            var options = new SearchOptions { Depth = depth > 0 ? depth : null };
+            result = Search.Run(board, options, -Infinity, Infinity);
+        }
 
         if (result.Move is null) throw new NoLegalMovesError("No legal moves available");
 

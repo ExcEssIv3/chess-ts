@@ -140,17 +140,9 @@
           <option value="b">Black</option>
         </select>
       </label>
-      <label id="depth-select-label">
-        Depth:
-        <select id="depth-select">
-          <option value="0">0 (no lookahead)</option>
-          <option value="1">1</option>
-          <option value="2" selected>2</option>
-          <option value="3">3</option>
-          <option value="4">4</option>
-          <option value="5">5</option>
-          <option value="6">6</option>
-        </select>
+      <label id="movetime-select-label">
+        Think time (ms):
+        <input type="number" id="movetime-input" value="1000" min="100" step="100" />
       </label>
     </div>
     <form id="fen-form">

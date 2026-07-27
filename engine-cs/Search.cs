@@ -1,5 +1,8 @@
 namespace EngineCs;
 
+using System;
+using System.Diagnostics;
+
 public struct SearchOptions
 {
     /// <summary>null mirrors the TS `depth?: number` left undefined (JS falsy) — leaf-only, no recursion.</summary>
@@ -20,9 +23,16 @@ public struct SearchEvaluation
 /// </summary>
 public static class Search
 {
-    public static SearchEvaluation Run(Board board, SearchOptions searchOptions, int alpha, int beta)
+    public static SearchEvaluation Run(
+        Board board,
+        SearchOptions searchOptions,
+        int alpha,
+        int beta,
+        EngineMove? recommendedMove = null,
+        Stopwatch? rootDeadlineClock = null,
+        long? rootDeadlineMs = null)
     {
-        var legalMoves = Movegen.FindLegalMoves(board);
+        var legalMoves = Movegen.FindLegalMoves(board, recommendedMove);
 
         if (legalMoves.Count == 0)
         {
@@ -40,13 +50,29 @@ public static class Search
 
             foreach (var move in legalMoves)
             {
+                // Only the root ply (rootDeadlineClock passed in by
+                // RunIterative) bails early on a blown time budget — each
+                // depth here costs roughly branching-factor-times the last,
+                // so without this a slow depth can run for minutes past its
+                // budget. Recursive calls below don't forward the clock, so
+                // deeper plies always finish normally; `bestMove is not null`
+                // guarantees at least one root move is fully searched before
+                // we're allowed to bail, so we never return an unevaluated node.
+                if (rootDeadlineClock is not null && bestMove is not null
+                    && rootDeadlineClock.ElapsedMilliseconds >= rootDeadlineMs) break;
+
                 ulong from = 1UL << move.From;
                 ulong to = 1UL << move.To;
                 char? promotion = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove) : null;
 
                 var undo = board.MakeMove(from, to, promotion);
                 var childOptions = new SearchOptions { Depth = searchOptions.Depth - 1, MovetimeMs = searchOptions.MovetimeMs };
-                // negamax: recurse with bounds swapped-and-negated.
+                // negamax: recurse with bounds swapped-and-negated. Don't
+                // forward recommendedMove — it's only legal at THIS node's
+                // position; Movegen.FindLegalMoves adds it unchecked, so
+                // passing it into a child (a different position after
+                // MakeMove) injects a fabricated "legal move" that corrupts
+                // the board when later applied there.
                 var childEval = Run(board, childOptions, -beta, -alpha);
                 board.UnmakeMove(from, to, promotion, undo);
 
@@ -89,5 +115,23 @@ public static class Search
         }
 
         return new SearchEvaluation { Move = leafBest, Value = leafMax };
+    }
+
+    public static SearchEvaluation RunIterative(Board board, SearchOptions searchOptions)
+    {
+        if (searchOptions.MovetimeMs is null) throw new Exception("Movetime cannot be null for iterative runs");
+
+        var sw = Stopwatch.StartNew();
+        SearchEvaluation best = default;
+        int depth = 1;
+
+        do
+        {
+            var candidate = Run(board, new SearchOptions { Depth = depth }, int.MinValue + 1, int.MaxValue, best.Move, sw, searchOptions.MovetimeMs);
+            if (candidate.Move is not null) best = candidate;
+            depth++;
+        } while (sw.ElapsedMilliseconds < searchOptions.MovetimeMs);
+
+        return best;
     }
 }

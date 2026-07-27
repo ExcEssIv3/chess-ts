@@ -20,7 +20,7 @@ let currentFen = START_FEN;
 let board: ChessboardInstance | undefined;
 let engineEnabled = true;
 let userSide: "w" | "b" = "w";
-let searchDepth = 2;
+let searchMovetimeMs = 1000;
 let currentOrientation: "white" | "black" = "white";
 
 function activeColor(fen: string): "w" | "b" {
@@ -41,8 +41,8 @@ function updateEngineControlsVisibility() {
   const display = engineEnabled ? "" : "none";
   const sideLabel = document.getElementById("side-select-label");
   if (sideLabel) sideLabel.style.display = display;
-  const depthLabel = document.getElementById("depth-select-label");
-  if (depthLabel) depthLabel.style.display = display;
+  const movetimeLabel = document.getElementById("movetime-select-label");
+  if (movetimeLabel) movetimeLabel.style.display = display;
 }
 
 let goSentAt: number | null = null;
@@ -53,7 +53,7 @@ function maybeTriggerEngine() {
     goSentAt = performance.now();
     const statusEl = document.getElementById("engine-status");
     if (statusEl) statusEl.textContent = "Thinking…";
-    sendCommand({ type: "go", movetimeMs: 1000, depth: searchDepth });
+    sendCommand({ type: "go", movetimeMs: searchMovetimeMs });
   }
 }
 
@@ -197,8 +197,9 @@ document.getElementById("side-select")?.addEventListener("change", (e) => {
   sendCommand({ type: "newGame" });
 });
 
-document.getElementById("depth-select")?.addEventListener("change", (e) => {
-  searchDepth = parseInt((e.target as HTMLSelectElement).value, 10);
+document.getElementById("movetime-input")?.addEventListener("change", (e) => {
+  const value = parseInt((e.target as HTMLInputElement).value, 10);
+  if (Number.isFinite(value) && value > 0) searchMovetimeMs = value;
 });
 
 document.getElementById("fen-form")?.addEventListener("submit", (e) => {

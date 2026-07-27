@@ -181,7 +181,7 @@ public static class Movegen
         }
     }
 
-    public static List<EngineMove> FindLegalMoves(Board board)
+    public static List<EngineMove> FindLegalMoves(Board board, EngineMove? recommendedMove = null)
     {
         var ranking = new CaptureRanking();
 
@@ -241,8 +241,10 @@ public static class Movegen
         }
 
         var moves = new List<EngineMove>(
+            (recommendedMove is not null) ? 1 : 0 +
             ranking.QueenCapture.Count + ranking.RookCapture.Count + ranking.BishopCapture.Count +
             ranking.KnightCapture.Count + ranking.PawnCapture.Count + ranking.Nothing.Count);
+        if (recommendedMove is not null) moves.Add(recommendedMove.Value);
         moves.AddRange(ranking.QueenCapture);
         moves.AddRange(ranking.RookCapture);
         moves.AddRange(ranking.BishopCapture);
