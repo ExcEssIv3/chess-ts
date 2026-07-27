@@ -22,7 +22,14 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "9.0.x"
+      - run: dotnet workload install wasm-tools
       - run: npm ci
+      # `npm run build` runs `build:engine-cs` first (dotnet publish the
+      # engine-cs/ WASM engine into public/dotnet-engine/) before the
+      # TS build, so the wasm-tools workload above must be in place first.
       - run: npm run build
       - uses: actions/upload-pages-artifact@v3
         with:
