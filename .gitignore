@@ -30,3 +30,8 @@ engine-cs/**/obj/
 # Copied from engine-cs/bin/Release/net9.0/publish/wwwroot/_framework by
 # `npm run build:engine-cs` — a build artifact, not source.
 public/dotnet-engine/
+
+# Second WASM build (built from an arbitrary git ref) used by the Engine
+# Competition feature — see `npm run build:compare-engine`.
+public/dotnet-engine-compare/
+.git-worktrees/

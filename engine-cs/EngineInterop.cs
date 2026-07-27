@@ -78,4 +78,19 @@ public static partial class EngineInterop
         string promo = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove).ToString() : "";
         return fromAlg + toAlg + promo;
     }
+
+    /// <summary>
+    /// Returns "ongoing", "checkmate", or "stalemate" for `fen`. Only ever
+    /// called against the current build acting as match referee (see
+    /// src/competition/match.ts) — a comparison build checked out from an
+    /// older git ref may not export this at all.
+    /// </summary>
+    [JSExport]
+    internal static string GameStatus(string fen)
+    {
+        var board = new Board(fen);
+        if (Movegen.FindLegalMoves(board).Count > 0) return "ongoing";
+        bool inCheck = Movegen.CheckDanger(board, board.WhiteToMove ? board.WKing : board.BKing, !board.WhiteToMove);
+        return inCheck ? "checkmate" : "stalemate";
+    }
 }

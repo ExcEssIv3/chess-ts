@@ -80,7 +80,7 @@ function gameStatus(fen: string): GameStatus {
   const board = new Board(fen);
   const moves = findLegalMoves(board);
   if (moves.length > 0) return "ongoing";
-  const inCheck = checkDanger(board, board.whiteToMove ? board.wKing : board.bKing, board.whiteToMove);
+  const inCheck = checkDanger(board, board.whiteToMove ? board.wKing : board.bKing, !board.whiteToMove);
   return inCheck ? "checkmate" : "stalemate";
 }
 

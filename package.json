@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "bench": "tsx scripts/bench.ts",
     "tournament": "tsx scripts/tournament.ts",
-    "perf": "tsx scripts/perf.ts"
+    "perf": "tsx scripts/perf.ts",
+    "build:compare-engine": "tsx scripts/build-compare-engine.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.1",

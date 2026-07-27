@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>chess — engine competition</title>
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.css"
+    />
+    <style>
+      body {
+        font-family: sans-serif;
+        font-size: 14px;
+      }
+      .page {
+        width: 500px;
+        margin: 0 auto;
+      }
+      nav {
+        margin: 16px 0;
+      }
+      h1 {
+        font-size: 20px;
+      }
+      #compare-status {
+        font-size: 13px;
+        color: #666;
+        margin-bottom: 16px;
+      }
+      .competitor-config {
+        display: flex;
+        gap: 24px;
+        margin-bottom: 16px;
+      }
+      fieldset {
+        flex: 1;
+      }
+      fieldset label {
+        display: block;
+        margin-top: 8px;
+        font-size: 13px;
+      }
+      #mode-select {
+        margin-bottom: 16px;
+        display: flex;
+        gap: 16px;
+      }
+      .hidden {
+        display: none;
+      }
+      #board-wrapper {
+        width: 400px;
+        margin: 20px auto;
+      }
+      #board .square-55d63,
+      #board .piece-417db {
+        touch-action: none;
+      }
+      #live-status,
+      #batch-status {
+        min-height: 1.2em;
+        margin: 8px 0;
+        color: #444;
+      }
+      #batch-scoreboard {
+        border-collapse: collapse;
+        margin-bottom: 12px;
+      }
+      #batch-scoreboard td {
+        padding: 2px 8px;
+        border: 1px solid #ccc;
+      }
+      #batch-log {
+        max-height: 240px;
+        overflow-y: auto;
+        padding-left: 20px;
+        font-size: 13px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <nav><a href="index.html">&larr; Back to Play</a></nav>
+      <h1>Engine Competition</h1>
+      <div id="compare-status">Checking for a comparison build&hellip;</div>
+
+      <div class="competitor-config">
+        <fieldset>
+          <legend>Competitor A</legend>
+          <label>
+            Engine:
+            <select id="competitor-a-engine">
+              <optgroup label="WASM builds">
+                <option value="wasm:current">Current build</option>
+                <option value="wasm:compare">Comparison build</option>
+              </optgroup>
+              <optgroup label="TypeScript reference">
+                <option value="ts:latest">TS latest</option>
+                <option value="ts:v4">TS v4 — piece-square tables</option>
+                <option value="ts:v3">TS v3 — alpha-beta</option>
+                <option value="ts:v2">TS v2 — recursive negamax</option>
+                <option value="ts:v1">TS v1 — depth-1 material</option>
+              </optgroup>
+            </select>
+          </label>
+          <label>
+            Think time (ms):
+            <input type="number" id="competitor-a-movetime" value="500" min="10" step="50" />
+          </label>
+        </fieldset>
+        <fieldset>
+          <legend>Competitor B</legend>
+          <label>
+            Engine:
+            <select id="competitor-b-engine">
+              <optgroup label="WASM builds">
+                <option value="wasm:current">Current build</option>
+                <option value="wasm:compare" selected>Comparison build</option>
+              </optgroup>
+              <optgroup label="TypeScript reference">
+                <option value="ts:latest">TS latest</option>
+                <option value="ts:v4">TS v4 — piece-square tables</option>
+                <option value="ts:v3">TS v3 — alpha-beta</option>
+                <option value="ts:v2">TS v2 — recursive negamax</option>
+                <option value="ts:v1">TS v1 — depth-1 material</option>
+              </optgroup>
+            </select>
+          </label>
+          <label>
+            Think time (ms):
+            <input type="number" id="competitor-b-movetime" value="500" min="10" step="50" />
+          </label>
+        </fieldset>
+      </div>
+
+      <div id="mode-select">
+        <label><input type="radio" name="mode" id="mode-live" checked /> Live game</label>
+        <label><input type="radio" name="mode" id="mode-batch" /> Batch</label>
+      </div>
+
+      <div id="live-panel">
+        <button id="live-start" type="button">Start live game</button>
+        <button id="live-stop" type="button" disabled>Stop</button>
+        <div id="live-status"></div>
+        <div id="board-wrapper"><div id="board"></div></div>
+      </div>
+
+      <div id="batch-panel" class="hidden">
+        <label>Games: <input type="number" id="batch-games" value="10" min="1" /></label>
+        <label>Max plies/game: <input type="number" id="batch-max-plies" value="150" min="1" /></label>
+        <button id="batch-start" type="button">Start batch</button>
+        <div id="batch-status"></div>
+        <table id="batch-scoreboard">
+          <tbody>
+            <tr><td>Competitor A wins</td><td id="score-a">0</td></tr>
+            <tr><td>Competitor B wins</td><td id="score-b">0</td></tr>
+            <tr><td>Draws</td><td id="score-draws">0</td></tr>
+          </tbody>
+        </table>
+        <ul id="batch-log"></ul>
+      </div>
+    </div>
+    <script
+      src="https://code.jquery.com/jquery-3.7.1.min.js"
+      integrity="sha256-/JqT3SQfawRcv/BIHPThkBvs0OEvtFFmqPF/lYI/Cxo="
+      crossorigin="anonymous"
+    ></script>
+    <script src="https://unpkg.com/@chrisoakman/chessboardjs@1.0.0/dist/chessboard-1.0.0.min.js"></script>
+    <script type="module" src="/src/competition.ts"></script>
+  </body>
+</html>

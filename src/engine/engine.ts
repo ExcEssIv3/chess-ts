@@ -15,7 +15,7 @@ export function search(board: Board, searchOptions: SearchOptions, alpha: number
     const legalMoves = findLegalMoves(board);
 
     if (legalMoves.length === 0) {
-        if (checkDanger(board, board.whiteToMove ? board.wKing : board.bKing, board.whiteToMove)) {
+        if (checkDanger(board, board.whiteToMove ? board.wKing : board.bKing, !board.whiteToMove)) {
             return {
                 move: [],
                 value: -10000
