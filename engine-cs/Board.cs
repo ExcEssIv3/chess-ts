@@ -1,5 +1,4 @@
 using System;
-using System.Numerics;
 
 namespace EngineCs;
 
@@ -36,6 +35,7 @@ public struct BoardUndo
     public bool WasCastle;
     public int CastleRookFromSquare;
     public int CastleRookToSquare;
+    public int PrevPhaseSum;
 }
 
 /// <summary>
@@ -49,6 +49,9 @@ public class Board
 
     public ulong BPawns, BRooks, BKnights, BBishops, BQueens, BKing;
     public ulong BOccupancy;
+
+    /// <summary>Sum of Evaluation.PhaseValue across all pieces on the board — 24 at game start, trending toward 0 as material is traded off. Used to taper mg/eg evaluation.</summary>
+    public int PhaseSum;
 
     public bool WhiteToMove = true;
     /// <summary>4-bit flag: 1=White kingside, 2=White queenside, 4=Black kingside, 8=Black queenside.</summary>
@@ -78,16 +81,16 @@ public class Board
             {
                 case '/': rank--; file = 0; break;
                 case 'p': BPawns |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'n': BKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'b': BBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'r': BRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'q': BQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
+                case 'n': BKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('n'); break;
+                case 'b': BBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('b'); break;
+                case 'r': BRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('r'); break;
+                case 'q': BQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('q'); break;
                 case 'k': BKing |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
                 case 'P': WPawns |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'N': WKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'B': WBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'R': WRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'Q': WQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
+                case 'N': WKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('N'); break;
+                case 'B': WBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('B'); break;
+                case 'R': WRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('R'); break;
+                case 'Q': WQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('Q'); break;
                 case 'K': WKing |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
                 default:
                     if (!char.IsDigit(c)) throw new Exception("Invalid fen.");
@@ -181,6 +184,7 @@ public class Board
         // without depending on it holding for correctness.
         WOccupancy = WPawns | WRooks | WBishops | WKnights | WQueens | WKing;
         BOccupancy = BPawns | BRooks | BBishops | BKnights | BQueens | BKing;
+
     }
 
     /// <summary>`mask` is a bitmask, typically a single set bit.</summary>
@@ -236,7 +240,13 @@ public class Board
             WasCastle = false,
             CastleRookFromSquare = -1,
             CastleRookToSquare = -1,
+            PrevPhaseSum = PhaseSum
         };
+
+        if (capturedPiece is not null)
+        {
+            PhaseSum -= Evaluation.PhaseValue(capturedPiece.Value);
+        }
 
         ulong clearMask = ~(start | finish);
         WPawns &= clearMask; WKnights &= clearMask; WBishops &= clearMask; WRooks &= clearMask; WQueens &= clearMask; WKing &= clearMask;
@@ -273,6 +283,7 @@ public class Board
                 case 'R': WRooks |= finish; break;
                 case 'Q': WQueens |= finish; break;
             }
+            PhaseSum += Evaluation.PhaseValue(p);
             EnPassantSquare = -1;
             HalfmoveClock = 0;
         }
@@ -393,6 +404,7 @@ public class Board
         EnPassantSquare = undo.PrevEnPassantSquare;
         HalfmoveClock = undo.PrevHalfmoveClock;
         FullmoveNumber = undo.PrevFullmoveNumber;
+        PhaseSum = undo.PrevPhaseSum;
 
         char pieceOnFinish = promotion ?? undo.MovedPieceOriginal;
         SetPieceBit(pieceOnFinish, finish, false);

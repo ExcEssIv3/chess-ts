@@ -24,6 +24,23 @@ public static class Evaluation
         _ => 0,
     };
 
+    /// <summary>
+    /// Game-phase weight per piece type, for tapering mg/eg evaluation —
+    /// standard CPW "tapered eval" weights. Pawns and kings don't move the
+    /// needle since their count barely changes across a game. Max phase sum
+    /// at the start position is 24 (4+4+8+8).
+    /// </summary>
+    public const int MaxPhase = 24;
+
+    public static int PhaseValue(char piece) => char.ToUpperInvariant(piece) switch
+    {
+        'N' => 1,
+        'B' => 1,
+        'R' => 2,
+        'Q' => 4,
+        _ => 0,
+    };
+
     /// <summary>Returns difference between white and black material+PST. Negative favors black.</summary>
     public static int EvaluatePosition(Board board)
     {
@@ -35,25 +52,30 @@ public static class Evaluation
             ulong loc = 1UL << i;
             if ((board.WOccupancy & loc) != 0)
             {
-                if ((board.WPawns & loc) != 0) { whiteTotal += PawnValue + PieceSquareTables.PawnMg[i]; }
-                else if ((board.WRooks & loc) != 0) { whiteTotal += RookValue + PieceSquareTables.RookMg[i]; }
-                else if ((board.WKnights & loc) != 0) { whiteTotal += KnightValue + PieceSquareTables.KnightMg[i]; }
-                else if ((board.WBishops & loc) != 0) { whiteTotal += BishopValue + PieceSquareTables.BishopMg[i]; }
-                else if ((board.WQueens & loc) != 0) { whiteTotal += QueenValue + PieceSquareTables.QueenMg[i]; }
-                else { whiteTotal += PieceSquareTables.KingMg[i]; }
+                if ((board.WPawns & loc) != 0) { whiteTotal += PawnValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.PawnMg, PieceSquareTables.PawnEg); }
+                else if ((board.WRooks & loc) != 0) { whiteTotal += RookValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.RookMg, PieceSquareTables.RookEg); }
+                else if ((board.WKnights & loc) != 0) { whiteTotal += KnightValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.KnightMg, PieceSquareTables.KnightEg); }
+                else if ((board.WBishops & loc) != 0) { whiteTotal += BishopValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.BishopMg, PieceSquareTables.BishopEg); }
+                else if ((board.WQueens & loc) != 0) { whiteTotal += QueenValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.QueenMg, PieceSquareTables.QueenEg); }
+                else { whiteTotal += CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.KingMg, PieceSquareTables.KingEg); }
             }
             else if ((board.BOccupancy & loc) != 0)
             {
                 int mirrored = i ^ 56;
-                if ((board.BPawns & loc) != 0) { blackTotal += PawnValue + PieceSquareTables.PawnMg[mirrored]; }
-                else if ((board.BRooks & loc) != 0) { blackTotal += RookValue + PieceSquareTables.RookMg[mirrored]; }
-                else if ((board.BKnights & loc) != 0) { blackTotal += KnightValue + PieceSquareTables.KnightMg[mirrored]; }
-                else if ((board.BBishops & loc) != 0) { blackTotal += BishopValue + PieceSquareTables.BishopMg[mirrored]; }
-                else if ((board.BQueens & loc) != 0) { blackTotal += QueenValue + PieceSquareTables.QueenMg[mirrored]; }
-                else { blackTotal += PieceSquareTables.KingMg[mirrored]; }
+                if ((board.BPawns & loc) != 0) { blackTotal += PawnValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.PawnMg, PieceSquareTables.PawnEg); }
+                else if ((board.BRooks & loc) != 0) { blackTotal += RookValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.RookMg, PieceSquareTables.RookEg); }
+                else if ((board.BKnights & loc) != 0) { blackTotal += KnightValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.KnightMg, PieceSquareTables.KnightEg); }
+                else if ((board.BBishops & loc) != 0) { blackTotal += BishopValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.BishopMg, PieceSquareTables.BishopEg); }
+                else if ((board.BQueens & loc) != 0) { blackTotal += QueenValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.QueenMg, PieceSquareTables.QueenEg); }
+                else { blackTotal += CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.KingMg, PieceSquareTables.KingEg); }
             }
         }
 
         return whiteTotal - blackTotal;
+    }
+
+    private static int CalculateSquareValue(int square, int phaseSum, int[] midgameBoard, int[] endgameBoard)
+    {
+        return (midgameBoard[square] * phaseSum + endgameBoard[square] * (MaxPhase - phaseSum)) / MaxPhase;
     }
 }
