@@ -5,10 +5,12 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build:engine-cs": "dotnet publish engine-cs -c Release && rm -rf public/dotnet-engine/_framework && cp -r engine-cs/bin/Release/net9.0/publish/wwwroot/_framework public/dotnet-engine/_framework",
+    "build": "npm run build:engine-cs && tsc && vite build",
     "preview": "vite preview",
     "bench": "tsx scripts/bench.ts",
-    "tournament": "tsx scripts/tournament.ts"
+    "tournament": "tsx scripts/tournament.ts",
+    "perf": "tsx scripts/perf.ts"
   },
   "devDependencies": {
     "tsx": "^4.23.1",
