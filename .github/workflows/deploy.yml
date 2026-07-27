@@ -25,7 +25,15 @@ jobs:
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: "9.0.x"
+      # A freshly-installed SDK's bundled workload manifests can be stale
+      # relative to its exact feature band, which silently no-ops the
+      # wasm-tools install below (dotnet publish then falls back to an
+      # unoptimized, non-wasm build with no error, just a warning) —
+      # `workload update` refreshes the manifests for the SDK that was
+      # just installed before `workload install` runs.
+      - run: dotnet workload update
       - run: dotnet workload install wasm-tools
+      - run: dotnet workload list
       - run: npm ci
       # `npm run build` runs `build:engine-cs` first (dotnet publish the
       # engine-cs/ WASM engine into public/dotnet-engine/) before the
