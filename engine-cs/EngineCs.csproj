@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <Nullable>enable</Nullable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <SupportedOSPlatformVersion>0.0</SupportedOSPlatformVersion>
+  </PropertyGroup>
+
+  <!-- TestRunner/ is a standalone console project (non-WASM) used only to
+       run perft/eval/search verification quickly during development; it
+       must not be globbed into this browser-wasm project's compilation. -->
+  <ItemGroup>
+    <Compile Remove="TestRunner/**/*.cs" />
+    <Content Remove="TestRunner/**" />
+    <None Remove="TestRunner/**" />
+  </ItemGroup>
+
+</Project>

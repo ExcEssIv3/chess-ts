@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Utils.cs" />
+    <Compile Include="../Attacks.cs" />
+    <Compile Include="../Board.cs" />
+    <Compile Include="../Legality.cs" />
+    <Compile Include="../Movegen.cs" />
+    <Compile Include="../Evaluation.cs" />
+    <Compile Include="../PieceSquareTables.cs" />
+    <Compile Include="../Search.cs" />
+  </ItemGroup>
+</Project>
