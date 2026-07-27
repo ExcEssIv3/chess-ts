@@ -8,6 +8,10 @@ const worker = new Worker(new URL("./worker/engine.worker.ts", import.meta.url),
   type: "module",
 });
 
+worker.onerror = (e) => {
+  console.error("[engine worker] uncaught error:", e.message, `at ${e.filename}:${e.lineno}`);
+};
+
 function sendCommand(cmd: EngineCommand) {
   worker.postMessage(cmd);
 }

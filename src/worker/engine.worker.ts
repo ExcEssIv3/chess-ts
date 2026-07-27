@@ -1,13 +1,52 @@
 import type { EngineCommand, EngineEvent } from "./protocol";
 import { START_FEN } from "./protocol";
-import { applyMove, findBestMove, IllegalMoveError } from "../engine";
 import { Board } from "../engine/board";
 
-let currentFen: string = START_FEN;
+// The engine itself now lives in engine-cs/ (C# compiled to WebAssembly) —
+// see EngineInterop.cs for ApplyMove/FindBestMove, the exact analogues of
+// src/engine/index.ts's applyMove/findBestMove. Board is still used here
+// (TS, not WASM) purely to validate/normalize a pasted FEN in `setFen` —
+// that's cheap, self-contained parsing that doesn't need the engine loaded.
+interface EngineCsExports {
+  ApplyMove(fen: string, from: string, to: string, promotion: string | null): string;
+  FindBestMove(fen: string, depth: number, movetimeMs: number): string;
+}
 
-self.onmessage = (e: MessageEvent<EngineCommand>) => {
+// Exceptions thrown by EngineInterop.cs cross the JS/WASM boundary as plain
+// JS Errors — the original C# exception type (IllegalMoveError vs. some
+// other failure) isn't preserved for an `instanceof` check on this side, so
+// illegal moves are distinguished by message text instead, matching the
+// exact string EngineInterop.cs's ApplyMove throws.
+const ILLEGAL_MOVE_MESSAGE = "Invalid move";
+
+let currentFen: string = START_FEN;
+let enginePromise: Promise<EngineCsExports> | null = null;
+
+async function loadEngine(): Promise<EngineCsExports> {
+  const base = import.meta.env.BASE_URL;
+  const dotnetJsUrl = `${base}dotnet-engine/_framework/dotnet.js`;
+  const { dotnet } = await import(/* @vite-ignore */ dotnetJsUrl);
+  const { getAssemblyExports, getConfig } = await dotnet.create();
+  const config = getConfig();
+  const exports = await getAssemblyExports(config.mainAssemblyName);
+  return exports.EngineCs.EngineInterop as EngineCsExports;
+}
+
+function getEngine(): Promise<EngineCsExports> {
+  if (!enginePromise) enginePromise = loadEngine();
+  return enginePromise;
+}
+
+// addEventListener, not `self.onmessage = ...` — the latter occupies the
+// single onmessage property slot, which dotnet's WASM runtime also needs
+// during dotnet.create() for internal thread-pool/startup coordination.
+// Assigning onmessage before that call resolves silently stalls it forever;
+// addEventListener registers an additional listener instead of claiming
+// that slot, so it doesn't conflict.
+self.addEventListener("message", async (e: MessageEvent<EngineCommand>) => {
   const cmd = e.data;
   try {
+    const engine = await getEngine();
     switch (cmd.type) {
       case "init":
         post({ type: "ready" });
@@ -27,8 +66,7 @@ self.onmessage = (e: MessageEvent<EngineCommand>) => {
 
       case "userMove": {
         try {
-          const result = applyMove(currentFen, cmd.from, cmd.to, cmd.promotion);
-          currentFen = result.fen;
+          currentFen = engine.ApplyMove(currentFen, cmd.from, cmd.to, cmd.promotion ?? null);
           post({
             type: "moveApplied",
             fen: currentFen,
@@ -38,7 +76,7 @@ self.onmessage = (e: MessageEvent<EngineCommand>) => {
             by: "user",
           });
         } catch (err) {
-          if (err instanceof IllegalMoveError) {
+          if (err instanceof Error && err.message.includes(ILLEGAL_MOVE_MESSAGE)) {
             post({ type: "illegalMove", from: cmd.from, to: cmd.to });
           } else {
             throw err;
@@ -48,13 +86,9 @@ self.onmessage = (e: MessageEvent<EngineCommand>) => {
       }
 
       case "go": {
-        const { move } = findBestMove(currentFen, {
-          depth: cmd.depth,
-          movetimeMs: cmd.movetimeMs,
-        });
+        const move = engine.FindBestMove(currentFen, cmd.depth ?? 0, cmd.movetimeMs ?? 0);
         const [from, to, promotion] = [move.slice(0, 2), move.slice(2, 4), move.slice(4) || undefined];
-        const result = applyMove(currentFen, from, to, promotion);
-        currentFen = result.fen;
+        currentFen = engine.ApplyMove(currentFen, from, to, promotion ?? null);
         post({ type: "moveApplied", fen: currentFen, from, to, promotion, by: "engine" });
         break;
       }
@@ -66,7 +100,7 @@ self.onmessage = (e: MessageEvent<EngineCommand>) => {
   } catch (err) {
     post({ type: "error", message: err instanceof Error ? err.message : String(err) });
   }
-};
+});
 
 function post(event: EngineEvent) {
   (self as unknown as Worker).postMessage(event);
