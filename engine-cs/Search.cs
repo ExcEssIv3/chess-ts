@@ -1,7 +1,9 @@
 namespace EngineCs;
 
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 public struct SearchOptions
 {
@@ -36,7 +38,7 @@ public static class Search
 
         if (legalMoves.Count == 0)
         {
-            bool inCheck = Movegen.CheckDanger(board, board.WhiteToMove ? board.WKing : board.BKing, board.WhiteToMove);
+            bool inCheck = Movegen.CheckDanger(board, board.WhiteToMove ? board.WKing : board.BKing, !board.WhiteToMove);
             return new SearchEvaluation { Move = null, Value = inCheck ? -10000 : 0 };
         }
 
@@ -91,30 +93,7 @@ public static class Search
             return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
         }
 
-        // Leaf: evaluate every legal move's resulting position with static
-        // material+PST eval, flipped to the mover's perspective, no recursion.
-        int perspective = board.WhiteToMove ? 1 : -1;
-        int leafMax = int.MinValue;
-        EngineMove? leafBest = null;
-
-        foreach (var move in legalMoves)
-        {
-            ulong from = 1UL << move.From;
-            ulong to = 1UL << move.To;
-            char? promotion = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove) : null;
-
-            var undo = board.MakeMove(from, to, promotion);
-            int evaluation = Evaluation.EvaluatePosition(board) * perspective;
-            board.UnmakeMove(from, to, promotion, undo);
-
-            if (evaluation > leafMax)
-            {
-                leafMax = evaluation;
-                leafBest = move;
-            }
-        }
-
-        return new SearchEvaluation { Move = leafBest, Value = leafMax };
+        return new SearchEvaluation { Move = null, Value = Quiesce(board, alpha, beta) };
     }
 
     public static SearchEvaluation RunIterative(Board board, SearchOptions searchOptions)
@@ -131,6 +110,58 @@ public static class Search
             if (candidate.Move is not null) best = candidate;
             depth++;
         } while (sw.ElapsedMilliseconds < searchOptions.MovetimeMs);
+
+        return best;
+    }
+
+    private static int Quiesce(
+        Board board,
+        int alpha,
+        int beta
+    )
+    {
+        bool inCheck = Movegen.CheckDanger(board, board.WhiteToMove ? board.WKing : board.BKing, !board.WhiteToMove);
+
+        List<EngineMove> moves;
+        int best;
+        if (inCheck)
+        {
+            // Can't stand pat while in check — the mover has no choice but to
+            // address it, so search every legal evasion, not just captures.
+            moves = Movegen.FindLegalMoves(board);
+            if (moves.Count == 0) return -10000; // checkmated at this node
+            best = int.MinValue;
+        }
+        else
+        {
+            int perspective = board.WhiteToMove ? 1 : -1;
+            int standPat = Evaluation.EvaluatePosition(board) * perspective;
+            if (standPat >= beta) return standPat;
+            if (standPat > alpha) alpha = standPat;
+            best = standPat;
+            moves = Movegen.FindCaptureMoves(board);
+        }
+
+        foreach (EngineMove move in moves)
+        {
+            ulong from = 1UL << move.From;
+            ulong to = 1UL << move.To;
+            char? promotion = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove) : null;
+
+            var undo = board.MakeMove(from, to, promotion);
+            // negamax: recurse with bounds swapped-and-negated, then flip the
+            // result back since it's scored from the opponent's perspective.
+            int childEval = Quiesce(board, -beta, -alpha);
+            board.UnmakeMove(from, to, promotion, undo);
+
+            int evaluation = -childEval;
+            if (evaluation > best)
+            {
+                best = evaluation;
+            }
+            if (best > alpha) alpha = best;
+            if (alpha >= beta) break;
+        }
 
         return best;
     }

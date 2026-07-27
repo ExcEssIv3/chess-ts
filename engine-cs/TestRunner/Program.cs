@@ -45,7 +45,7 @@ Console.WriteLine($"missing black queen eval = {evalNoBlackQueen} (expected > 0,
 
 Console.WriteLine();
 Console.WriteLine("=== FindBestMove smoke test ===");
-foreach (int depth in new[] { 1, 2, 3 })
+foreach (int depth in new[] { 1, 2, 3, 4 })
 {
     var board = new Board(StartFen);
     var options = new SearchOptions { Depth = depth };
@@ -62,6 +62,65 @@ foreach (int depth in new[] { 1, 2, 3 })
     string to = Utils.SquareToAlgebraic(mv.To);
     string promo = mv.Promotion >= 0 ? Utils.PromotionCharFromCode(mv.Promotion, board.WhiteToMove).ToString() : "";
     Console.WriteLine($"depth={depth}: move={from}{to}{promo} value={result.Value} [{sw.ElapsedMilliseconds}ms]");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== Quiesce/check-evasion: fool's mate ===");
+{
+    // 1.f3 e5 2.g4 Qh4# — White is checkmated. Regression check for the
+    // inverted-attacker-color bug in Search's CheckDanger calls, which
+    // caused unbounded recursion once Quiesce started exercising it.
+    var board = new Board(StartFen);
+    void Play(string from, string to)
+    {
+        ulong f = 1UL << Utils.AlgebraicToSquare(from);
+        ulong t = 1UL << Utils.AlgebraicToSquare(to);
+        board.MakeMove(f, t, null);
+    }
+    Play("f2", "f3");
+    Play("e7", "e5");
+    Play("g2", "g4");
+    Play("d8", "h4");
+    Console.WriteLine($"position: {board.ConvertFen()} (expect White checkmated)");
+
+    bool noMoves = Movegen.FindLegalMoves(board).Count == 0;
+    bool inCheck = Movegen.CheckDanger(board, board.WKing, false);
+    Console.WriteLine($"no legal moves for White -> {(noMoves ? "PASS" : "FAIL")}");
+    Console.WriteLine($"White king in check -> {(inCheck ? "PASS" : "FAIL")}");
+
+    sw.Restart();
+    var result = Search.Run(board, new SearchOptions { Depth = 2 }, -1_000_000, 1_000_000);
+    sw.Stop();
+    bool scoredAsMate = result.Move is null && result.Value == -10000;
+    Console.WriteLine($"Search.Run scores position as mate (move=null, value=-10000) -> {(scoredAsMate ? "PASS" : "FAIL")}   [{sw.ElapsedMilliseconds}ms]");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== FindCaptureMoves: en passant ===");
+{
+    var board = new Board(StartFen);
+    void Play(string from, string to)
+    {
+        ulong f = 1UL << Utils.AlgebraicToSquare(from);
+        ulong t = 1UL << Utils.AlgebraicToSquare(to);
+        board.MakeMove(f, t, null);
+    }
+    Play("e2", "e4");
+    Play("e7", "e6");
+    Play("e4", "e5");
+    Play("d7", "d5");
+    Console.WriteLine($"position: {board.ConvertFen()} (expect en passant square d6)");
+
+    int exSquare = Utils.AlgebraicToSquare("e5");
+    int d6Square = Utils.AlgebraicToSquare("d6");
+    var captures = Movegen.FindCaptureMoves(board);
+    bool foundEp = captures.Exists(m => m.From == exSquare && m.To == d6Square);
+    Console.WriteLine($"exd6 e.p. present in FindCaptureMoves -> {(foundEp ? "PASS" : "FAIL")}");
+
+    bool isEpMove(EngineMove m) => m.From == exSquare && m.To == d6Square;
+    bool anyQuietLeaked = captures.Exists(m => !isEpMove(m) &&
+        ((1UL << m.To) & (board.WOccupancy | board.BOccupancy)) == 0);
+    Console.WriteLine($"no quiet (non-capture, non-e.p.) moves leaked into FindCaptureMoves -> {(!anyQuietLeaked ? "PASS" : "FAIL")}");
 }
 
 Console.WriteLine();

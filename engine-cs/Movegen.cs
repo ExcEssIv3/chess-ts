@@ -125,9 +125,16 @@ public static class Movegen
     {
         var move = new EngineMove(from, to, promotion);
         ulong toBit = 1UL << to;
+        ulong fromBit = 1UL << from;
+        // En passant captures land on an empty square (the captured pawn sits
+        // on an adjacent square), so the AndBlack/AndWhite occupancy check
+        // below would otherwise misclassify them as quiet moves.
+        bool isEnPassant = board.EnPassantSquare == to &&
+            ((board.WhiteToMove ? board.WPawns : board.BPawns) & fromBit) != 0;
         if (board.WhiteToMove)
         {
-            if (board.AndBlack(toBit))
+            if (isEnPassant) ranking.PawnCapture.Add(move);
+            else if (board.AndBlack(toBit))
             {
                 if ((board.BQueens & toBit) != 0) ranking.QueenCapture.Add(move);
                 else if ((board.BRooks & toBit) != 0) ranking.RookCapture.Add(move);
@@ -140,7 +147,8 @@ public static class Movegen
         }
         else
         {
-            if (board.AndWhite(toBit))
+            if (isEnPassant) ranking.PawnCapture.Add(move);
+            else if (board.AndWhite(toBit))
             {
                 if ((board.WQueens & toBit) != 0) ranking.QueenCapture.Add(move);
                 else if ((board.WRooks & toBit) != 0) ranking.RookCapture.Add(move);
@@ -233,9 +241,9 @@ public static class Movegen
             var king = SquareInfo.FromBit(board.BKing);
             GenStep(board, king, Attacks.KingOffsets, ranking);
             if ((board.CastlingRights & 4) != 0 && Legality.EvaluateLegal(board, king.Bit, king.Bit << 2))
-                DetermineCaptureRank(board, king.Square, king.Square + 2, ranking);
+                ranking.Nothing.Add(new EngineMove(king.Square, king.Square + 2));
             if ((board.CastlingRights & 8) != 0 && Legality.EvaluateLegal(board, king.Bit, king.Bit >> 2))
-                DetermineCaptureRank(board, king.Square, king.Square - 2, ranking);
+                ranking.Nothing.Add(new EngineMove(king.Square, king.Square - 2));
 
             foreach (var queen in SquaresOf(board.BQueens)) GenSliding(board, queen, straights: true, diagonals: true, ranking);
         }
@@ -254,6 +262,70 @@ public static class Movegen
         return moves;
     }
 
+    public static List<EngineMove> FindCaptureMoves(Board board)
+    {
+        var ranking = new CaptureRanking();
+
+        if (board.WhiteToMove)
+        {
+            foreach (var pawn in SquaresOf(board.WPawns))
+            {
+                if (
+                    pawn.File > 0
+                    && (board.AndBlack(pawn.Bit << 7) || board.EnPassantSquare == pawn.Square + 7)
+                    && Legality.EvaluateLegal(board, pawn.Bit, pawn.Bit << 7))
+                    PushPawnMove(board, pawn.Square, pawn.Square + 7, pawn.Rank == 6, ranking);
+                if (
+                    pawn.File < 7
+                    && (board.AndBlack(pawn.Bit << 9) || board.EnPassantSquare == pawn.Square + 9)
+                    && Legality.EvaluateLegal(board, pawn.Bit, pawn.Bit << 9))
+                    PushPawnMove(board, pawn.Square, pawn.Square + 9, pawn.Rank == 6, ranking);
+            }
+
+            foreach (var rook in SquaresOf(board.WRooks)) GenSlidingCapture(board, rook, straights: true, diagonals: false, ranking);
+            foreach (var knight in SquaresOf(board.WKnights)) GenStepCapture(board, knight, Attacks.KnightOffsets, ranking);
+            foreach (var bishop in SquaresOf(board.WBishops)) GenSlidingCapture(board, bishop, straights: false, diagonals: true, ranking);
+
+            var king = SquareInfo.FromBit(board.WKing);
+            GenStepCapture(board, king, Attacks.KingOffsets, ranking);
+
+            foreach (var queen in SquaresOf(board.WQueens)) GenSlidingCapture(board, queen, straights: true, diagonals: true, ranking);
+        }
+        else
+        {
+            foreach (var pawn in SquaresOf(board.BPawns))
+            {
+                if (
+                    pawn.File > 0
+                    && (board.AndWhite(pawn.Bit >> 9) || board.EnPassantSquare == pawn.Square - 9)
+                    && Legality.EvaluateLegal(board, pawn.Bit, pawn.Bit >> 9))
+                    PushPawnMove(board, pawn.Square, pawn.Square - 9, pawn.Rank == 1, ranking);
+                if (
+                    pawn.File < 7
+                    && (board.AndWhite(pawn.Bit >> 7) || board.EnPassantSquare == pawn.Square - 7)
+                    && Legality.EvaluateLegal(board, pawn.Bit, pawn.Bit >> 7))
+                    PushPawnMove(board, pawn.Square, pawn.Square - 7, pawn.Rank == 1, ranking);
+            }
+
+            foreach (var rook in SquaresOf(board.BRooks)) GenSlidingCapture(board, rook, straights: true, diagonals: false, ranking);
+            foreach (var knight in SquaresOf(board.BKnights)) GenStepCapture(board, knight, Attacks.KnightOffsets, ranking);
+            foreach (var bishop in SquaresOf(board.BBishops)) GenSlidingCapture(board, bishop, straights: false, diagonals: true, ranking);
+
+            var king = SquareInfo.FromBit(board.BKing);
+            GenStepCapture(board, king, Attacks.KingOffsets, ranking);
+
+            foreach (var queen in SquaresOf(board.BQueens)) GenSlidingCapture(board, queen, straights: true, diagonals: true, ranking);
+        }
+
+        var moves = new List<EngineMove>();
+        moves.AddRange(ranking.QueenCapture);
+        moves.AddRange(ranking.RookCapture);
+        moves.AddRange(ranking.BishopCapture);
+        moves.AddRange(ranking.KnightCapture);
+        moves.AddRange(ranking.PawnCapture);
+        return moves;
+    }
+
     private static void GenStep(Board board, SquareInfo piece, (int fileDelta, int rankDelta)[] offsets, CaptureRanking ranking)
     {
         foreach (var (fileDelta, rankDelta) in offsets)
@@ -263,6 +335,23 @@ public static class Movegen
             if (targetFile < 0 || targetFile > 7 || targetRank < 0 || targetRank > 7) continue;
             int target = piece.Square + rankDelta * 8 + fileDelta;
             if (Legality.EvaluateLegal(board, piece.Bit, 1UL << target)) DetermineCaptureRank(board, piece.Square, target, ranking);
+        }
+    }
+
+    private static void GenStepCapture(Board board, SquareInfo piece, (int fileDelta, int rankDelta)[] offsets, CaptureRanking ranking)
+    {
+        foreach (var (fileDelta, rankDelta) in offsets)
+        {
+            int targetFile = piece.File + fileDelta;
+            int targetRank = piece.Rank + rankDelta;
+            if (targetFile < 0 || targetFile > 7 || targetRank < 0 || targetRank > 7) continue;
+            int target = piece.Square + rankDelta * 8 + fileDelta;
+            if (Legality.EvaluateLegal(board, piece.Bit, 1UL << target)) {
+                if (board.WhiteToMove ? board.AndBlack(1UL << target) : board.AndWhite(1UL << target))
+                {
+                    DetermineCaptureRank(board, piece.Square, target, ranking);
+                }
+            }
         }
     }
 
@@ -277,6 +366,16 @@ public static class Movegen
         if (diagonals)
             foreach (var (fileShift, rankShift) in DiagonalDirs)
                 RepetitiveMovementCaptureRank(SaveRepetitiveMovements(board, piece, fileShift, rankShift), board, ranking);
+    }
+
+    private static void GenSlidingCapture(Board board, SquareInfo piece, bool straights, bool diagonals, CaptureRanking ranking)
+    {
+        if (straights)
+            foreach (var (fileShift, rankShift) in StraightDirs)
+                RepetitiveMovementCaptureRank(SaveRepetitiveCaptures(board, piece, fileShift, rankShift), board, ranking);
+        if (diagonals)
+            foreach (var (fileShift, rankShift) in DiagonalDirs)
+                RepetitiveMovementCaptureRank(SaveRepetitiveCaptures(board, piece, fileShift, rankShift), board, ranking);
     }
 
     private static List<(int from, int to)> SaveRepetitiveMovements(Board board, SquareInfo start, int fileShift, int rankShift)
@@ -317,6 +416,48 @@ public static class Movegen
                     break;
                 }
                 if (LeavesKingSafeFixed(board, start.Bit, current, originalWhiteToMove)) moves.Add((start.Square, square));
+            }
+        }
+
+        return moves;
+    }
+
+    private static List<(int from, int to)> SaveRepetitiveCaptures(Board board, SquareInfo start, int fileShift, int rankShift)
+    {
+        var moves = new List<(int, int)>();
+
+        bool originalWhiteToMove = board.WhiteToMove;
+        int square = start.Square;
+        int delta = fileShift + rankShift * 8;
+
+        while (true)
+        {
+            int file = square % 8;
+            int rank = square / 8;
+            if (fileShift > 0 && file == 7) break;
+            if (fileShift < 0 && file == 0) break;
+            if (rankShift > 0 && rank == 7) break;
+            if (rankShift < 0 && rank == 0) break;
+
+            square += delta;
+            ulong current = 1UL << square;
+            if (originalWhiteToMove)
+            {
+                if (board.AndWhite(current)) break;
+                if (board.AndBlack(current))
+                {
+                    if (LeavesKingSafeFixed(board, start.Bit, current, originalWhiteToMove)) moves.Add((start.Square, square));
+                    break;
+                }
+            }
+            else
+            {
+                if (board.AndBlack(current)) break;
+                if (board.AndWhite(current))
+                {
+                    if (LeavesKingSafeFixed(board, start.Bit, current, originalWhiteToMove)) moves.Add((start.Square, square));
+                    break;
+                }
             }
         }
 
