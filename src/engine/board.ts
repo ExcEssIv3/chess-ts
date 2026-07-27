@@ -10,12 +10,16 @@ export class Board {
     wQueens: bigint = 0n;
     wKing: bigint = 0n;
 
+    wOccupancy: bigint = 0n;
+
     bPawns: bigint = 0n;
     bRooks: bigint = 0n;
     bKnights: bigint = 0n;
     bBishops: bigint = 0n;
     bQueens: bigint = 0n;
     bKing: bigint = 0n;
+
+    bOccupancy: bigint = 0n;
 
     whiteToMove: boolean = true;
     castlingRights: number = 0;
@@ -117,6 +121,9 @@ export class Board {
             }
         }
 
+        this.wOccupancy = this.wPawns + this.wRooks + this.wBishops + this.wKnights + this.wQueens + this.wKing;
+        this.bOccupancy = this.bPawns + this.bRooks + this.bBishops + this.bKnights + this.bQueens + this.bKing;
+
         // active color
         if (parts[1] === "w") {
             this.whiteToMove = true;
@@ -210,23 +217,16 @@ export class Board {
     /** `start`/`finish` are bitmasks (single set bit), not square indices */
     move(start: bigint, finish: bigint, promotion?: PromotionPieceChar): void {
         const piece = this.pieceAt(start);
+        const isCapture = this.whiteToMove
+            ? (this.bOccupancy & finish) > 0n
+            : (this.wOccupancy & finish) > 0n;
 
-        let preMaskSum = 0n;
-        if (this.whiteToMove) {
-            preMaskSum += this.bPawns + this.bRooks + this.bKnights + this.bBishops + this.bKing + this.bQueens;
-        } else {
-            preMaskSum += this.wPawns + this.wRooks + this.wKnights + this.wBishops + this.wKing + this.wQueens;
-        }
         const clearMask = ~(start | finish);
         this.andEqualsWhite(clearMask);
         this.andEqualsBlack(clearMask);
 
         this.halfmoveClock++;
-        if (this.whiteToMove) {
-            if (preMaskSum > this.bPawns + this.bRooks + this.bKnights + this.bBishops + this.bKing + this.bQueens) this.halfmoveClock = 0;
-        } else {
-            if (preMaskSum > this.wPawns + this.wRooks + this.wKnights + this.wBishops + this.wKing + this.wQueens) this.halfmoveClock = 0;
-        }
+        if (isCapture) this.halfmoveClock = 0;
 
         // disable castling when rook is taken
         if (finish === 1n) {
@@ -378,26 +378,18 @@ export class Board {
         }
         this.whiteToMove = !this.whiteToMove;
         if (this.whiteToMove) this.fullmoveNumber++;
-    }
-
-    /** returns a full occupancy bitboard (many bits set), not a single-square bit or index */
-    private whiteOccupancy(): bigint {
-        return this.wPawns | this.wKnights | this.wBishops | this.wRooks | this.wQueens | this.wKing;
-    }
-
-    /** returns a full occupancy bitboard (many bits set), not a single-square bit or index */
-    private blackOccupancy(): bigint {
-        return this.bPawns | this.bKnights | this.bBishops | this.bRooks | this.bQueens | this.bKing;
+        this.wOccupancy = this.wPawns + this.wRooks + this.wBishops + this.wKnights + this.wQueens + this.wKing;
+        this.bOccupancy = this.bPawns + this.bRooks + this.bBishops + this.bKnights + this.bQueens + this.bKing;
     }
 
     /** `num` is a bitmask (typically a single set bit), not a square index */
     andWhite(num: bigint): boolean {
-        return (this.whiteOccupancy() & num) > 0n;
+        return (this.wOccupancy & num) > 0n;
     }
 
     /** `num` is a bitmask (typically a single set bit), not a square index */
     andBlack(num: bigint): boolean {
-        return (this.blackOccupancy() & num) > 0n;
+        return (this.bOccupancy & num) > 0n;
     }
 
     /** `num` is a bitmask (e.g. a clear-mask), not a square index */

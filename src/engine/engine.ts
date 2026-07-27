@@ -83,43 +83,12 @@ export function search(board: Board, searchOptions: SearchOptions, alpha: number
 
 // returns difference between black pieces and white pieces. negative is black
 export function evaluatePosition(board: Board): number {
-    const boardPositions = 
-        board.wPawns
-        + board.wRooks
-        + board.wKnights
-        + board.wBishops
-        + board.wQueens
-        + board.wKing
-        + board.bPawns
-        + board.bRooks
-        + board.bKnights
-        + board.bBishops
-        + board.bQueens
-        + board.bKing;
-
-    const wPositions = 
-        board.wPawns
-        + board.wRooks
-        + board.wKnights
-        + board.wBishops
-        + board.wQueens
-        + board.wKing;
-    
-    const bPositions = 
-        board.bPawns
-        + board.bRooks
-        + board.bKnights
-        + board.bBishops
-        + board.bQueens
-        + board.bKing;
-
     let whiteTotal = 0;
     let blackTotal = 0;
     let numIndex = 0;
     for (let i = 0n; i < 64n; i++) {
-        if (boardPositions === 0n) break;
         const loc = 1n << i;
-        if ((wPositions & loc) > 0) {
+        if ((board.wOccupancy & loc) > 0) {
             if ((board.wPawns & loc) > 0) {
                 whiteTotal += PIECE_VALUES.P;
                 whiteTotal += PAWN_MG[numIndex];
@@ -138,7 +107,7 @@ export function evaluatePosition(board: Board): number {
             } else {
                 whiteTotal += KING_MG[numIndex];
             }
-        } else if ((bPositions & loc) > 0) {
+        } else if ((board.bOccupancy & loc) > 0) {
             if ((board.bPawns & loc) > 0) {
                 blackTotal += PIECE_VALUES.P;
                 blackTotal += PAWN_MG[numIndex ^ 56];
