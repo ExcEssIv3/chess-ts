@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- EngineInterop.cs is annotated [SupportedOSPlatform("browser")] for
+         its real home (the WASM build); reusing its plain-C# ReplayHistory
+         helper here is deliberate (see Program.cs) and never touches any
+         actual browser/JS interop, so this platform-compat warning is
+         expected noise, not a real risk. -->
+    <NoWarn>CA1416</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../Utils.cs" />
+    <Compile Include="../Attacks.cs" />
+    <Compile Include="../Board.cs" />
+    <Compile Include="../Zobrist.cs" />
+    <Compile Include="../Legality.cs" />
+    <Compile Include="../Movegen.cs" />
+    <Compile Include="../Evaluation.cs" />
+    <Compile Include="../PieceSquareTables.cs" />
+    <Compile Include="../Search.cs" />
+    <Compile Include="../EngineInterop.cs" />
+  </ItemGroup>
+</Project>

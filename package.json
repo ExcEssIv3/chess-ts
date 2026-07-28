@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build:engine-cs": "dotnet publish engine-cs -c Release && mkdir -p public/dotnet-engine && rm -rf public/dotnet-engine/_framework && cp -r engine-cs/bin/Release/net9.0/publish/wwwroot/_framework public/dotnet-engine/_framework",
+    "build:uci-engine": "dotnet publish engine-cs/UciEngine -c Release",
     "build": "npm run build:engine-cs && tsc && vite build",
     "preview": "vite preview",
     "bench": "tsx scripts/bench.ts",

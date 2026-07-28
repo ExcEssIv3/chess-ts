@@ -9,6 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `npm run build:engine-cs` — `dotnet publish engine-cs -c Release` and copies the WASM `_framework` output into `public/dotnet-engine/`
 - `npm run preview` — preview the production build
 - `npm run bench` / `npm run tournament` / `npm run perf` — TS-only tooling, see below. Not part of the production build.
+- `npm run build:uci-engine` — `dotnet publish engine-cs/UciEngine -c Release`, produces a native (framework-dependent) UCI executable at `engine-cs/UciEngine/bin/Release/net9.0/publish/UciEngine` for external GUIs/bridges (e.g. `lichess-bot`). Not part of the production build.
 - No test suite and no lint script exist yet. `npm run build` is the closest thing to a correctness check (`tsc` has `noUnusedLocals`/`noUnusedParameters` enabled, so unused code fails the build; `dotnet publish` will fail on C# compile errors).
 
 ## Architecture
@@ -23,6 +24,7 @@ Browser chess app: **C#/WASM engine is the authoritative chess logic**, driven f
   - `EngineInterop.cs` — `[JSExport]` surface the worker calls: `ApplyMove(fen, from, to, promotion?)` (throws on illegal moves) and `FindBestMove(fen, depth, movetimeMs)` (fixed-depth `Search.Run` or, when `movetimeMs > 0`, iterative-deepening `Search.RunIterative`).
   - `Board.cs`, `Legality.cs`, `Movegen.cs`, `Attacks.cs`, `Utils.cs`, `Evaluation.cs`, `PieceSquareTables.cs`, `Search.cs` — C# port of the same bitboard/movegen/eval/search design described below for `src/engine/`; that description still applies conceptually, just read `.cs` instead of `.ts`.
   - `TestRunner/` — separate console project for exercising the engine outside the browser (e.g. perft).
+  - `UciEngine/` — separate console project implementing the UCI protocol (`uci`/`isready`/`position`/`go`/`stop`/`quit`) over stdin/stdout, for external GUIs/bridges like `lichess-bot`. Reuses `EngineInterop.ReplayHistory` to build a `Board`+`positionCounts` from a `position` command, and `Search.RunIterative`/`Search.Run` for the actual move. `go`'s `wtime`/`btime`/`winc`/`binc`/`movestogo` are converted into a single movetime budget by `TimeManagement.ComputeBudgetMs`; `go depth N` with no clock fields runs a plain fixed-depth `Search.Run` instead. Runs the search on a background `Task` so `stop` (setting `SearchDeadline.Stopped`, a new mutable field `Search.Run`'s root-ply loop checks alongside the time budget) can interrupt it without blocking the stdin-reading loop.
 - `src/engine/` (TypeScript) — **no longer used at runtime**, except the one `Board` import above. Kept as the base for the TS-only tooling below; treat it as a frozen reference, not a place to add new engine features.
   - `types.ts` — `PieceChar`, `PromotionPieceChar`, `SquareInfo` (see note below on bit vs. square).
   - `board.ts` — `Board` class: one bitboard per piece type/color, FEN parsing (`applyFen`) and serialization (`convertFen`), and `move()` which mutates bitboards/castling rights/en passant/halfmove clock for a given start/finish bit pair.

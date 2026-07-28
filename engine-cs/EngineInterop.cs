@@ -63,7 +63,10 @@ public static partial class EngineInterop
     /// recurring 3 more times post-paste, not 3 total. Accepted tradeoff:
     /// there's no way to recover history that was never provided.
     /// </summary>
-    private static (Board board, Dictionary<ulong, PositionInfo> positionCounts) ReplayHistory(string startFen, string moves)
+    // internal (not private): UciEngine reuses this to seed a Board +
+    // positionCounts from a UCI "position" command's startFen/move list,
+    // the same way this file's own FindBestMove/GameStatus do.
+    internal static (Board board, Dictionary<ulong, PositionInfo> positionCounts) ReplayHistory(string startFen, string moves)
     {
         var board = new Board(startFen);
         var positionCounts = new Dictionary<ulong, PositionInfo>();

@@ -18,6 +18,23 @@ public struct SearchEvaluation
 }
 
 /// <summary>
+/// Mutable root-level time budget shared between the search loop and an
+/// external caller (e.g. a UCI front-end reacting to a "stop" command on a
+/// separate thread). Expired is checked only at the root ply between
+/// sibling moves (see Run's rootDeadline check) — same latency tradeoff as
+/// before this was a class: a single slow-to-search root move can still run
+/// past the budget, but Stopped now lets an external thread force the next
+/// check to bail immediately instead of waiting for BudgetMs to elapse.
+/// </summary>
+public sealed class SearchDeadline
+{
+    private readonly Stopwatch _clock = Stopwatch.StartNew();
+    public long BudgetMs;
+    public volatile bool Stopped;
+    public bool Expired => Stopped || _clock.ElapsedMilliseconds >= BudgetMs;
+}
+
+/// <summary>
 /// Per-position-hash bookkeeping shared across one Run/RunIterative call.
 /// Count is how many times this exact position (game history + current
 /// search path) has occurred — reaching 3 is an automatic draw. Eval is a
@@ -49,8 +66,7 @@ public static class Search
         Dictionary<ulong, PositionInfo> positionCounts,
         int ply,
         EngineMove? recommendedMove = null,
-        Stopwatch? rootDeadlineClock = null,
-        long? rootDeadlineMs = null)
+        SearchDeadline? rootDeadline = null)
     {
         // Checked before movegen: a threefold repetition is a draw
         // unconditionally, regardless of whose move it is or what moves
@@ -80,16 +96,16 @@ public static class Search
 
             foreach (var move in legalMoves)
             {
-                // Only the root ply (rootDeadlineClock passed in by
-                // RunIterative) bails early on a blown time budget — each
-                // depth here costs roughly branching-factor-times the last,
-                // so without this a slow depth can run for minutes past its
-                // budget. Recursive calls below don't forward the clock, so
-                // deeper plies always finish normally; `bestMove is not null`
-                // guarantees at least one root move is fully searched before
-                // we're allowed to bail, so we never return an unevaluated node.
-                if (rootDeadlineClock is not null && bestMove is not null
-                    && rootDeadlineClock.ElapsedMilliseconds >= rootDeadlineMs) break;
+                // Only the root ply (rootDeadline passed in by RunIterative,
+                // or set externally via SearchDeadline.Stopped) bails early
+                // on a blown time budget — each depth here costs roughly
+                // branching-factor-times the last, so without this a slow
+                // depth can run for minutes past its budget. Recursive calls
+                // below don't forward the deadline, so deeper plies always
+                // finish normally; `bestMove is not null` guarantees at least
+                // one root move is fully searched before we're allowed to
+                // bail, so we never return an unevaluated node.
+                if (rootDeadline is not null && bestMove is not null && rootDeadline.Expired) break;
 
                 ulong from = 1UL << move.From;
                 ulong to = 1UL << move.To;
@@ -127,11 +143,21 @@ public static class Search
         return new SearchEvaluation { Move = null, Value = Quiesce(board, alpha, beta, positionCounts, ply) };
     }
 
-    public static SearchEvaluation RunIterative(Board board, SearchOptions searchOptions, Dictionary<ulong, PositionInfo> positionCounts)
+    // externalDeadline lets a caller (e.g. a UCI front-end) hold onto the
+    // SearchDeadline instance before/while this runs on a background thread,
+    // so it can set Stopped=true in response to a "stop" command. Callers
+    // that don't need that (EngineInterop, TestRunner) omit it and this
+    // builds its own from MovetimeMs, same as before.
+    public static SearchEvaluation RunIterative(
+        Board board,
+        SearchOptions searchOptions,
+        Dictionary<ulong, PositionInfo> positionCounts,
+        SearchDeadline? externalDeadline = null)
     {
         if (searchOptions.MovetimeMs is null) throw new Exception("Movetime cannot be null for iterative runs");
 
-        var sw = Stopwatch.StartNew();
+        var deadline = externalDeadline ?? new SearchDeadline();
+        deadline.BudgetMs = searchOptions.MovetimeMs.Value;
         SearchEvaluation best = default;
         int depth = 1;
 
@@ -145,12 +171,11 @@ public static class Search
                 positionCounts,
                 0,
                 best.Move,
-                sw,
-                searchOptions.MovetimeMs);
+                deadline);
             if (candidate.Move is not null) best = candidate;
             if (candidate.Value > 900_000) break;
             depth++;
-        } while (sw.ElapsedMilliseconds < searchOptions.MovetimeMs);
+        } while (!deadline.Expired);
 
         return best;
     }
