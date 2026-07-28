@@ -50,7 +50,7 @@ foreach (int depth in new[] { 1, 2, 3, 4 })
     var board = new Board(StartFen);
     var options = new SearchOptions { Depth = depth };
     sw.Restart();
-    var result = Search.Run(board, options, -1_000_000, 1_000_000, new Dictionary<ulong, PositionInfo>());
+    var result = Search.Run(board, options, -1_000_000, 1_000_000, new Dictionary<ulong, PositionInfo>(), 0);
     sw.Stop();
     if (result.Move is null)
     {
@@ -89,10 +89,46 @@ Console.WriteLine("=== Quiesce/check-evasion: fool's mate ===");
     Console.WriteLine($"White king in check -> {(inCheck ? "PASS" : "FAIL")}");
 
     sw.Restart();
-    var result = Search.Run(board, new SearchOptions { Depth = 2 }, -1_000_000, 1_000_000, new Dictionary<ulong, PositionInfo>());
+    var result = Search.Run(board, new SearchOptions { Depth = 2 }, -1_000_000, 1_000_000, new Dictionary<ulong, PositionInfo>(), 0);
     sw.Stop();
-    bool scoredAsMate = result.Move is null && result.Value == -10000;
-    Console.WriteLine($"Search.Run scores position as mate (move=null, value=-10000) -> {(scoredAsMate ? "PASS" : "FAIL")}   [{sw.ElapsedMilliseconds}ms]");
+    bool scoredAsMate = result.Move is null && result.Value == -1_000_000;
+    Console.WriteLine($"Search.Run scores position as mate (move=null, value=-1000000) -> {(scoredAsMate ? "PASS" : "FAIL")}   [{sw.ElapsedMilliseconds}ms]");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== Mate-found early exit: RunIterative stops well before the movetime budget ===");
+{
+    // Black to move, one ply before fool's mate: 1.f3 e5 2.g4 and Qh4# is
+    // mate-in-1. With a generous movetime budget, RunIterative should find
+    // it at depth 1 and break out of its do-while loop immediately, rather
+    // than spinning through deeper iterations until time runs out.
+    var board = new Board(StartFen);
+    void Play(string from, string to)
+    {
+        ulong f = 1UL << Utils.AlgebraicToSquare(from);
+        ulong t = 1UL << Utils.AlgebraicToSquare(to);
+        board.MakeMove(f, t, null);
+    }
+    Play("f2", "f3");
+    Play("e7", "e5");
+    Play("g2", "g4");
+    Console.WriteLine($"position: {board.ConvertFen()} (Black to move, Qh4# available)");
+
+    sw.Restart();
+    var result = Search.RunIterative(board, new SearchOptions { MovetimeMs = 2000 }, new Dictionary<ulong, PositionInfo>());
+    sw.Stop();
+
+    bool foundMove = result.Move is not null;
+    string move = foundMove
+        ? $"{Utils.SquareToAlgebraic(result.Move.Value.From)}{Utils.SquareToAlgebraic(result.Move.Value.To)}"
+        : "none";
+    bool foundQh4 = move == "d8h4";
+    bool scoredAsMate = result.Value > 900_000;
+    bool returnedFast = sw.ElapsedMilliseconds < 500;
+    Console.WriteLine($"move={move} value={result.Value} [{sw.ElapsedMilliseconds}ms] (budget=2000ms)");
+    Console.WriteLine($"found Qh4# -> {(foundQh4 ? "PASS" : "FAIL")}");
+    Console.WriteLine($"scored as mate (>900000) -> {(scoredAsMate ? "PASS" : "FAIL")}");
+    Console.WriteLine($"returned well under the 2000ms budget -> {(returnedFast ? "PASS" : "FAIL")}");
 }
 
 Console.WriteLine();
@@ -103,7 +139,7 @@ Console.WriteLine("=== Threefold repetition scores as an immediate draw ===");
     {
         [board.PositionKey] = new PositionInfo { Count = 3 }
     };
-    var result = Search.Run(board, new SearchOptions { Depth = 3 }, -1_000_000, 1_000_000, positionCounts);
+    var result = Search.Run(board, new SearchOptions { Depth = 3 }, -1_000_000, 1_000_000, positionCounts, 0);
     bool scoredAsDraw = result.Move is null && result.Value == 0;
     Console.WriteLine($"Search.Run scores a pre-seeded 3rd occurrence as a draw (move=null, value=0) -> {(scoredAsDraw ? "PASS" : "FAIL")}");
 }

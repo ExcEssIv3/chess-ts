@@ -112,7 +112,7 @@ public static partial class EngineInterop
         else
         {
             var options = new SearchOptions { Depth = depth > 0 ? depth : null };
-            result = Search.Run(board, options, -Infinity, Infinity, positionCounts);
+            result = Search.Run(board, options, -Infinity, Infinity, positionCounts, 0);
         }
 
         if (result.Move is null)

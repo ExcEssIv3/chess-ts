@@ -47,6 +47,7 @@ public static class Search
         int alpha,
         int beta,
         Dictionary<ulong, PositionInfo> positionCounts,
+        int ply,
         EngineMove? recommendedMove = null,
         Stopwatch? rootDeadlineClock = null,
         long? rootDeadlineMs = null)
@@ -66,7 +67,7 @@ public static class Search
         if (legalMoves.Count == 0)
         {
             bool inCheck = Movegen.CheckDanger(board, board.WhiteToMove ? board.WKing : board.BKing, !board.WhiteToMove);
-            return new SearchEvaluation { Move = null, Value = inCheck ? -10000 : 0 };
+            return new SearchEvaluation { Move = null, Value = inCheck ? -1_000_000 + ply: 0 };
         }
 
         // JS `if (searchOptions.depth)` is falsy for both undefined AND 0 —
@@ -103,7 +104,7 @@ public static class Search
                 // passing it into a child (a different position after
                 // MakeMove) injects a fabricated "legal move" that corrupts
                 // the board when later applied there.
-                var childEval = Run(board, childOptions, -beta, -alpha, positionCounts);
+                var childEval = Run(board, childOptions, -beta, -alpha, positionCounts, ply + 1);
                 PopPosition(positionCounts, board.PositionKey);
                 board.UnmakeMove(from, to, promotion, undo);
 
@@ -114,6 +115,7 @@ public static class Search
                 {
                     bestMove = move;
                     maxMoveValue = evaluation;
+                    if (evaluation > 900_000) return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
                 }
                 if (maxMoveValue > alpha) alpha = maxMoveValue;
                 if (alpha >= beta) return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
@@ -122,7 +124,7 @@ public static class Search
             return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
         }
 
-        return new SearchEvaluation { Move = null, Value = Quiesce(board, alpha, beta, positionCounts) };
+        return new SearchEvaluation { Move = null, Value = Quiesce(board, alpha, beta, positionCounts, ply) };
     }
 
     public static SearchEvaluation RunIterative(Board board, SearchOptions searchOptions, Dictionary<ulong, PositionInfo> positionCounts)
@@ -141,10 +143,12 @@ public static class Search
                 int.MinValue + 1,
                 int.MaxValue,
                 positionCounts,
+                0,
                 best.Move,
                 sw,
                 searchOptions.MovetimeMs);
             if (candidate.Move is not null) best = candidate;
+            if (candidate.Value > 900_000) break;
             depth++;
         } while (sw.ElapsedMilliseconds < searchOptions.MovetimeMs);
 
@@ -155,7 +159,8 @@ public static class Search
         Board board,
         int alpha,
         int beta,
-        Dictionary<ulong, PositionInfo> positionCounts
+        Dictionary<ulong, PositionInfo> positionCounts,
+        int ply
     )
     {
         if (IsThreefoldRepetition(positionCounts, board.PositionKey)) return 0;
@@ -169,7 +174,7 @@ public static class Search
             // Can't stand pat while in check — the mover has no choice but to
             // address it, so search every legal evasion, not just captures.
             moves = Movegen.FindLegalMoves(board);
-            if (moves.Count == 0) return -10000; // checkmated at this node
+            if (moves.Count == 0) return -1_000_000 + ply; // checkmated at this node
             best = int.MinValue;
         }
         else
@@ -191,7 +196,7 @@ public static class Search
             PushPosition(positionCounts, board.PositionKey);
             // negamax: recurse with bounds swapped-and-negated, then flip the
             // result back since it's scored from the opponent's perspective.
-            int childEval = Quiesce(board, -beta, -alpha, positionCounts);
+            int childEval = Quiesce(board, -beta, -alpha, positionCounts, ply + 1);
             PopPosition(positionCounts, board.PositionKey);
             board.UnmakeMove(from, to, promotion, undo);
 
@@ -199,6 +204,7 @@ public static class Search
             if (evaluation > best)
             {
                 best = evaluation;
+                if (evaluation > 900_000) break;
             }
             if (best > alpha) alpha = best;
             if (alpha >= beta) break;
