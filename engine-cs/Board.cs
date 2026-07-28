@@ -36,6 +36,7 @@ public struct BoardUndo
     public int CastleRookFromSquare;
     public int CastleRookToSquare;
     public int PrevPhaseSum;
+    public ulong PrevPositionKey;
 }
 
 /// <summary>
@@ -60,6 +61,7 @@ public class Board
     public int EnPassantSquare = -1;
     public int HalfmoveClock = 0;
     public int FullmoveNumber = 1;
+    public ulong PositionKey = 0;
 
     public Board(string fen)
     {
@@ -115,6 +117,65 @@ public class Board
 
         HalfmoveClock = int.Parse(parts[4]);
         FullmoveNumber = int.Parse(parts[5]);
+
+        GeneratePositionKey();
+    }
+
+    private void GeneratePositionKey()
+    {
+        PositionKey = 0;
+        HashPositions(WPawns, Zobrist.PieceSquares[0]);
+        HashPositions(WRooks, Zobrist.PieceSquares[1]);
+        HashPositions(WKnights, Zobrist.PieceSquares[2]);
+        HashPositions(WBishops, Zobrist.PieceSquares[3]);
+        HashPositions(WKing, Zobrist.PieceSquares[4]);
+        HashPositions(WQueens, Zobrist.PieceSquares[5]);
+        HashPositions(BPawns, Zobrist.PieceSquares[6]);
+        HashPositions(BRooks, Zobrist.PieceSquares[7]);
+        HashPositions(BKnights, Zobrist.PieceSquares[8]);
+        HashPositions(BBishops, Zobrist.PieceSquares[9]);
+        HashPositions(BKing, Zobrist.PieceSquares[10]);
+        HashPositions(BQueens, Zobrist.PieceSquares[11]);
+
+        if (!WhiteToMove) PositionKey ^= Zobrist.BlackToMove;
+        PositionKey ^= Zobrist.CastlingRights[CastlingRights];
+        if (EnPassantSquare >= 0) PositionKey ^= Zobrist.EnPassantAvailability[
+            EnPassantSquare % 8
+        ];
+    }
+
+    private void XORPieceToPositionKey(char piece, int start, int finish)
+    {
+        int index = piece switch
+        {
+            'P' => 0,
+            'R' => 1,
+            'N' => 2,
+            'B' => 3,
+            'K' => 4,
+            'Q' => 5,
+            'p' => 6,
+            'r' => 7,
+            'n' => 8,
+            'b' => 9,
+            'k' => 10,
+            'q' => 11,
+            _ => -1
+        };
+        if (index == -1) throw new Exception("Invalid piece char");
+        if (start > -1) PositionKey ^= Zobrist.PieceSquares[index][start];
+        if (finish > -1) PositionKey ^= Zobrist.PieceSquares[index][finish];
+    }
+
+    private void HashPositions(ulong bitboard, ulong[] hashes)
+    {
+        for (int i = 0; i < 64; i++)
+        {
+            if ((bitboard & 1UL << i) > 0)
+            {
+                PositionKey ^= hashes[i];
+            }
+        }
     }
 
     /// <summary>`mask` is a bitmask (single set bit), not a square index.</summary>
@@ -221,6 +282,13 @@ public class Board
     {
         char piece = PieceAt(start) ?? '\0';
 
+        // Captured once here rather than XORed piecemeal at each of the many
+        // branches below that can change these — only the before/after
+        // values matter for the hash, not how many times or where they
+        // changed along the way. Diffed once at the end of this method.
+        int oldCastlingRights = CastlingRights;
+        int oldEnPassantSquare = EnPassantSquare;
+
         // Compute "was this a capture" from PRE-move occupancy, before any
         // bitboard mutation — reading it after mutating would see stale/wrong
         // occupancy relative to the squares involved.
@@ -240,12 +308,23 @@ public class Board
             WasCastle = false,
             CastleRookFromSquare = -1,
             CastleRookToSquare = -1,
-            PrevPhaseSum = PhaseSum
+            PrevPhaseSum = PhaseSum,
+            PrevPositionKey = PositionKey
         };
+
+        if (promotion is not null)
+        {
+            // The pawn leaves `start`, but the piece arriving at `finish` is
+            // whatever it promoted to, not the pawn itself.
+            XORPieceToPositionKey(piece, Utils.BitToSquare(start), -1);
+            XORPieceToPositionKey(promotion.Value, -1, Utils.BitToSquare(finish));
+        } else XORPieceToPositionKey(piece, Utils.BitToSquare(start), Utils.BitToSquare(finish));
 
         if (capturedPiece is not null)
         {
             PhaseSum -= Evaluation.PhaseValue(capturedPiece.Value);
+            // this will never include en passant
+            XORPieceToPositionKey(capturedPiece.Value, -1, Utils.BitToSquare(finish));
         }
 
         ulong clearMask = ~(start | finish);
@@ -256,13 +335,14 @@ public class Board
         if (isCapture) HalfmoveClock = 0;
 
         // disable castling when a rook is captured on its home square
-        if (finish == 1UL) CastlingRights &= (1 + 4 + 8);
-        else if (finish == (1UL << 7)) CastlingRights &= (2 + 4 + 8);
-        else if (finish == (1UL << 56)) CastlingRights &= (1 + 2 + 4);
-        else if (finish == (1UL << 63)) CastlingRights &= (1 + 2 + 8);
+        if (finish == 1UL) CastlingRights &= 1 + 4 + 8;
+        else if (finish == (1UL << 7)) CastlingRights &= 2 + 4 + 8;
+        else if (finish == (1UL << 56)) CastlingRights &= 1 + 2 + 4;
+        else if (finish == (1UL << 63)) CastlingRights &= 1 + 2 + 8;
 
         int startSquare = Utils.BitToSquare(start);
         int finishSquare = Utils.BitToSquare(finish);
+
         int fileDelta = Utils.GetFileFromSquare(startSquare) - Utils.GetFileFromSquare(finishSquare);
 
         if (promotion is not null)
@@ -305,6 +385,7 @@ public class Board
                             WPawns &= ~capBit;
                             undo.CapturedPiece = 'P';
                             undo.CapturedSquare = finishSquare + 8;
+                            XORPieceToPositionKey('P', -1, Utils.BitToSquare(capBit));
                         }
                         EnPassantSquare = -1;
                     }
@@ -327,11 +408,13 @@ public class Board
                     {
                         BRooks &= ~(1UL << 56); BRooks |= 1UL << 59;
                         undo.WasCastle = true; undo.CastleRookFromSquare = 56; undo.CastleRookToSquare = 59;
+                        XORPieceToPositionKey('r', 56, startSquare - 1);
                     }
                     else if (fileDelta == -2)
                     {
                         BRooks &= ~(1UL << 63); BRooks |= 1UL << 61;
                         undo.WasCastle = true; undo.CastleRookFromSquare = 63; undo.CastleRookToSquare = 61;
+                        XORPieceToPositionKey('r', 63, startSquare + 1);
                     }
                     break;
                 case 'P':
@@ -348,6 +431,7 @@ public class Board
                             BPawns &= ~capBit;
                             undo.CapturedPiece = 'p';
                             undo.CapturedSquare = finishSquare - 8;
+                            XORPieceToPositionKey('p', -1, Utils.BitToSquare(capBit));
                         }
                         EnPassantSquare = -1;
                     }
@@ -370,17 +454,25 @@ public class Board
                     {
                         WRooks &= ~(1UL << 0); WRooks |= 1UL << 3;
                         undo.WasCastle = true; undo.CastleRookFromSquare = 0; undo.CastleRookToSquare = 3;
+                        XORPieceToPositionKey('R', 0, startSquare - 1);
                     }
                     else if (fileDelta == -2)
                     {
                         WRooks &= ~(1UL << 7); WRooks |= 1UL << 5;
                         undo.WasCastle = true; undo.CastleRookFromSquare = 7; undo.CastleRookToSquare = 5;
+                        XORPieceToPositionKey('R', 7, startSquare + 1);
                     }
                     break;
             }
         }
 
+        PositionKey ^= Zobrist.CastlingRights[oldCastlingRights];
+        PositionKey ^= Zobrist.CastlingRights[CastlingRights];
+        if (oldEnPassantSquare != -1) PositionKey ^= Zobrist.EnPassantAvailability[oldEnPassantSquare % 8];
+        if (EnPassantSquare != -1) PositionKey ^= Zobrist.EnPassantAvailability[EnPassantSquare % 8];
+
         WhiteToMove = !WhiteToMove;
+        PositionKey ^= Zobrist.BlackToMove;
         if (WhiteToMove) FullmoveNumber++;
         RecomputeOccupancy();
 
@@ -405,6 +497,7 @@ public class Board
         HalfmoveClock = undo.PrevHalfmoveClock;
         FullmoveNumber = undo.PrevFullmoveNumber;
         PhaseSum = undo.PrevPhaseSum;
+        PositionKey = undo.PrevPositionKey;
 
         char pieceOnFinish = promotion ?? undo.MovedPieceOriginal;
         SetPieceBit(pieceOnFinish, finish, false);

@@ -31,7 +31,7 @@ engine-cs/**/obj/
 # `npm run build:engine-cs` — a build artifact, not source.
 public/dotnet-engine/
 
-# Second WASM build (built from an arbitrary git ref) used by the Engine
-# Competition feature — see `npm run build:compare-engine`.
-public/dotnet-engine-compare/
+# Additional labeled WASM builds (each built from an arbitrary git ref) used
+# by the Engine Competition feature — see `npm run build:compare-engine`.
+public/dotnet-engine-*/
 .git-worktrees/

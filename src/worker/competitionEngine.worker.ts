@@ -10,13 +10,34 @@ import type { CompetitionCommand, CompetitionEvent } from "./competitionProtocol
 // asked about different games/positions across a batch run.
 interface EngineCsExports {
   ApplyMove(fen: string, from: string, to: string, promotion: string | null): string;
-  FindBestMove(fen: string, depth: number, movetimeMs: number): string;
-  GameStatus(fen: string): string;
+  FindBestMove(startFen: string, moves: string, depth: number, movetimeMs: number): string;
+  GameStatus(startFen: string, moves: string): string;
+}
+
+// A comparison build's FindBestMove may actually be the pre-history shape
+// (fen: string, depth: number, movetimeMs: number) — same export name, fewer
+// params. TS can't express "call this the old way" against the typed
+// interface above, so this narrow cast is exactly the pre-history signature,
+// used only by the fallback path.
+type LegacyFindBestMove = (fen: string, depth: number, movetimeMs: number) => string;
+
+// "|"-delimited move list — matches EngineInterop.ReplayHistory's parsing.
+function serializeMoves(moves: string[]): string {
+  return moves.join("|");
 }
 
 const ILLEGAL_MOVE_MESSAGE = "Invalid move";
 
 let enginePromise: Promise<EngineCsExports> | null = null;
+
+// A comparison build (see scripts/build-compare-engine.ts) may predate the
+// history-aware FindBestMove signature (startFen, moves, depth, movetimeMs)
+// — older builds only have the original (fen, depth, movetimeMs). There's no
+// way to introspect a loaded WASM module's exported signature directly, so
+// this is detected by trying the new shape once and falling back to the old
+// one if it throws, then remembered for the rest of this worker's lifetime
+// (one worker instance = one competitor's build for the whole match/batch).
+let supportsHistory: boolean | null = null;
 
 async function loadEngine(wasmBasePath: string): Promise<EngineCsExports> {
   const base = import.meta.env.BASE_URL;
@@ -51,7 +72,20 @@ self.addEventListener("message", async (e: MessageEvent<CompetitionCommand>) => 
 
       case "findBestMove": {
         const engine = await getEngine();
-        const move = engine.FindBestMove(cmd.fen, 0, cmd.movetimeMs);
+        const legacyFindBestMove = engine.FindBestMove as unknown as LegacyFindBestMove;
+
+        let move: string;
+        if (supportsHistory === false) {
+          move = legacyFindBestMove(cmd.fen, 0, cmd.movetimeMs);
+        } else {
+          try {
+            move = engine.FindBestMove(cmd.startFen, serializeMoves(cmd.moves), 0, cmd.movetimeMs);
+            supportsHistory = true;
+          } catch {
+            supportsHistory = false;
+            move = legacyFindBestMove(cmd.fen, 0, cmd.movetimeMs);
+          }
+        }
         post({ type: "bestMove", move });
         break;
       }
@@ -73,7 +107,11 @@ self.addEventListener("message", async (e: MessageEvent<CompetitionCommand>) => 
 
       case "gameStatus": {
         const engine = await getEngine();
-        const status = engine.GameStatus(cmd.fen) as "ongoing" | "checkmate" | "stalemate";
+        const status = engine.GameStatus(cmd.startFen, serializeMoves(cmd.moves)) as
+          | "ongoing"
+          | "checkmate"
+          | "stalemate"
+          | "threefold-repetition";
         post({ type: "status", status });
         break;
       }

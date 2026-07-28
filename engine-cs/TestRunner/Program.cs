@@ -50,7 +50,7 @@ foreach (int depth in new[] { 1, 2, 3, 4 })
     var board = new Board(StartFen);
     var options = new SearchOptions { Depth = depth };
     sw.Restart();
-    var result = Search.Run(board, options, -1_000_000, 1_000_000);
+    var result = Search.Run(board, options, -1_000_000, 1_000_000, new Dictionary<ulong, PositionInfo>());
     sw.Stop();
     if (result.Move is null)
     {
@@ -89,10 +89,45 @@ Console.WriteLine("=== Quiesce/check-evasion: fool's mate ===");
     Console.WriteLine($"White king in check -> {(inCheck ? "PASS" : "FAIL")}");
 
     sw.Restart();
-    var result = Search.Run(board, new SearchOptions { Depth = 2 }, -1_000_000, 1_000_000);
+    var result = Search.Run(board, new SearchOptions { Depth = 2 }, -1_000_000, 1_000_000, new Dictionary<ulong, PositionInfo>());
     sw.Stop();
     bool scoredAsMate = result.Move is null && result.Value == -10000;
     Console.WriteLine($"Search.Run scores position as mate (move=null, value=-10000) -> {(scoredAsMate ? "PASS" : "FAIL")}   [{sw.ElapsedMilliseconds}ms]");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== Threefold repetition scores as an immediate draw ===");
+{
+    var board = new Board(StartFen);
+    var positionCounts = new Dictionary<ulong, PositionInfo>
+    {
+        [board.PositionKey] = new PositionInfo { Count = 3 }
+    };
+    var result = Search.Run(board, new SearchOptions { Depth = 3 }, -1_000_000, 1_000_000, positionCounts);
+    bool scoredAsDraw = result.Move is null && result.Value == 0;
+    Console.WriteLine($"Search.Run scores a pre-seeded 3rd occurrence as a draw (move=null, value=0) -> {(scoredAsDraw ? "PASS" : "FAIL")}");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== EngineInterop.GameStatus: real history replay detects threefold repetition ===");
+{
+    // Bare kings shuffling back and forth: e3<->d3 (White), e5<->d5 (Black),
+    // twice over, lands back on the exact starting position for the 3rd
+    // time — exercises the actual startFen+moves replay path EngineInterop
+    // exposes to JS, not just a directly-seeded dictionary.
+    const string kingsFen = "8/8/8/4k3/8/4K3/8/8 w - - 0 1";
+    const string shuffleMoves = "e3d3|e5d5|d3e3|d5e5|e3d3|e5d5|d3e3|d5e5";
+
+    string status = EngineInterop.GameStatus(kingsFen, shuffleMoves);
+    Console.WriteLine($"status after 2x shuffle cycles = {status} (expected threefold-repetition) -> {(status == "threefold-repetition" ? "PASS" : "FAIL")}");
+
+    string statusOneCycle = EngineInterop.GameStatus(kingsFen, "e3d3|e5d5|d3e3|d5e5");
+    Console.WriteLine($"status after 1x shuffle cycle = {statusOneCycle} (expected ongoing) -> {(statusOneCycle == "ongoing" ? "PASS" : "FAIL")}");
+
+    // FindBestMove with the same history shouldn't throw and should still
+    // return a legal-shaped move string.
+    string move = EngineInterop.FindBestMove(kingsFen, shuffleMoves, 2, 0);
+    Console.WriteLine($"FindBestMove with repetition-heavy history returns a move -> {(move.Length is 4 or 5 ? "PASS" : "FAIL")} (move={move})");
 }
 
 Console.WriteLine();
@@ -121,6 +156,52 @@ Console.WriteLine("=== FindCaptureMoves: en passant ===");
     bool anyQuietLeaked = captures.Exists(m => !isEpMove(m) &&
         ((1UL << m.To) & (board.WOccupancy | board.BOccupancy)) == 0);
     Console.WriteLine($"no quiet (non-capture, non-e.p.) moves leaked into FindCaptureMoves -> {(!anyQuietLeaked ? "PASS" : "FAIL")}");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== Zobrist PositionKey consistency across make/unmake ===");
+{
+    // At every node, the incrementally-maintained PositionKey must match a
+    // hash freshly recomputed from that position's FEN — this is the
+    // definitive check that MakeMove/UnmakeMove's incremental XORs (piece
+    // moves, captures, en passant, promotion, castling rook relocation,
+    // castling rights, en passant availability, side to move) exactly
+    // agree with GeneratePositionKey's from-scratch computation.
+    int mismatches = 0;
+    long nodesChecked = 0;
+
+    long PerftWithHashCheck(Board board, int depth)
+    {
+        nodesChecked++;
+        ulong expected = new Board(board.ConvertFen()).PositionKey;
+        if (board.PositionKey != expected) mismatches++;
+
+        if (depth == 0) return 1;
+        var moves = Movegen.FindLegalMoves(board);
+
+        long nodes = 0;
+        foreach (var move in moves)
+        {
+            ulong from = 1UL << move.From;
+            ulong to = 1UL << move.To;
+            char? promotion = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove) : null;
+            var undo = board.MakeMove(from, to, promotion);
+            nodes += PerftWithHashCheck(board, depth - 1);
+            board.UnmakeMove(from, to, promotion, undo);
+            if (board.PositionKey != expected) mismatches++; // post-unmake restoration check
+        }
+        return nodes;
+    }
+
+    // Start position: broad general-move coverage (quiet moves, captures).
+    PerftWithHashCheck(new Board(StartFen), 4);
+
+    // Kiwipete: standard perft stress position exercising both-side
+    // castling, promotions, and en passant right from the root.
+    const string Kiwipete = "r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq - 0 1";
+    PerftWithHashCheck(new Board(Kiwipete), 3);
+
+    Console.WriteLine($"{nodesChecked} nodes checked, {mismatches} PositionKey mismatches -> {(mismatches == 0 ? "PASS" : "FAIL")}");
 }
 
 Console.WriteLine();

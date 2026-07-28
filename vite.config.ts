@@ -38,6 +38,12 @@ function serveDotnetEngineRaw(): Plugin {
 
         const contentType = MIME_TYPES[extname(filePath)];
         if (contentType) res.setHeader("Content-Type", contentType);
+        // Without this, browsers are free to cache these dev-server-served
+        // files indefinitely across engine rebuilds — stale WASM with a
+        // changed [JSExport] signature (e.g. FindBestMove gaining a
+        // parameter) then gets called with the new JS call shape, producing
+        // confusing marshalling errors that look nothing like "stale cache".
+        res.setHeader("Cache-Control", "no-store");
         createReadStream(filePath).pipe(res);
       });
     },

@@ -8,18 +8,28 @@ import { WorkerClient } from "./workerClient";
 // a maxPlies draw cap, win/loss/draw tallying), but async and driven through
 // worker instances instead of calling TS engine modules directly. The WASM
 // engine honors movetimeMs internally via Search.RunIterative, so a WASM
-// competitor only needs one findBestMove(fen, movetimeMs) call per move; a
-// TS-engine competitor (frozen snapshot or "latest") doesn't honor
-// movetimeMs at all, so tsEngine.worker.ts replicates tournament.ts's
-// external per-call iterative-deepening loop (pickMove) internally instead —
-// either way, from here a competitor is just "something with findBestMove".
+// competitor only needs one findBestMove call per move; a TS-engine
+// competitor (frozen snapshot or "latest") doesn't honor movetimeMs at all,
+// so tsEngine.worker.ts replicates tournament.ts's external per-call
+// iterative-deepening loop (pickMove) internally instead.
+//
+// WASM competitors and the referee are also repetition-aware: they take the
+// game's full move history (replayed via EngineInterop.ReplayHistory, see
+// engine-cs/EngineInterop.cs) rather than just the current FEN, so a
+// threefold repetition is recognized both by search (scored as a draw) and
+// by the referee (an actual game-ending status). TS competitors stay
+// history-naive/frozen, matching their "reference only" status — they're
+// only ever asked for a move given the current FEN, same as before.
 
-export type BuildId = "current" | "compare";
+// "current" is the live build (public/dotnet-engine/); any other string is a
+// label naming an additional build produced by
+// `npm run build:compare-engine -- <ref> <label>` (public/dotnet-engine-<label>/)
+// — there's no fixed limit on how many labeled comparison builds can coexist.
+export type BuildId = "current" | string;
 
-const WASM_BASE_PATH: Record<BuildId, string> = {
-  current: "dotnet-engine",
-  compare: "dotnet-engine-compare",
-};
+function wasmBasePathFor(build: BuildId): string {
+  return build === "current" ? "dotnet-engine" : `dotnet-engine-${build}`;
+}
 
 export type EngineRef = { kind: "wasm"; build: BuildId } | { kind: "ts"; version: TsEngineVersion };
 
@@ -29,26 +39,36 @@ export interface Competitor {
   movetimeMs: number;
 }
 
-// What playGame actually needs from a competitor's worker — satisfied
-// structurally by both WorkerClient (WASM) and TsWorkerClient (TS engine).
-interface MoverClient {
-  findBestMove(fen: string, movetimeMs: number): Promise<string>;
-  terminate(): void;
-}
+// WASM and TS competitors genuinely need different inputs to choose a move
+// (full history vs. just the current FEN) — rather than force a fake-uniform
+// interface, this tags which shape a given competitor's worker expects.
+type CompetitorWorker =
+  | { kind: "wasm"; client: WorkerClient }
+  | { kind: "ts"; client: TsWorkerClient };
 
-async function createMoverClient(engine: EngineRef): Promise<MoverClient> {
+async function createCompetitorWorker(engine: EngineRef): Promise<CompetitorWorker> {
   if (engine.kind === "wasm") {
     const client = new WorkerClient();
-    await client.init(WASM_BASE_PATH[engine.build]);
-    return client;
+    await client.init(wasmBasePathFor(engine.build));
+    return { kind: "wasm", client };
   }
   const client = new TsWorkerClient();
   await client.init(engine.version);
-  return client;
+  return { kind: "ts", client };
+}
+
+async function findBestMove(
+  worker: CompetitorWorker,
+  moves: string[],
+  fen: string,
+  movetimeMs: number
+): Promise<string> {
+  if (worker.kind === "wasm") return worker.client.findBestMove(fen, START_FEN, moves, movetimeMs);
+  return worker.client.findBestMove(fen, movetimeMs);
 }
 
 export interface GameResult {
-  status: "checkmate" | "stalemate" | "max-ply-draw" | "stopped";
+  status: "checkmate" | "stalemate" | "threefold-repetition" | "max-ply-draw" | "stopped";
   winner: "white" | "black" | null;
   plies: number;
   finalFen: string;
@@ -74,12 +94,12 @@ function activeColor(fen: string): "w" | "b" {
 // games, so a batch of N games doesn't pay the WASM-load cost N times.
 export class MatchSession {
   private readonly referee: WorkerClient;
-  private readonly workerA: MoverClient;
-  private readonly workerB: MoverClient;
+  private readonly workerA: CompetitorWorker;
+  private readonly workerB: CompetitorWorker;
   private readonly a: Competitor;
   private readonly b: Competitor;
 
-  private constructor(referee: WorkerClient, workerA: MoverClient, workerB: MoverClient, a: Competitor, b: Competitor) {
+  private constructor(referee: WorkerClient, workerA: CompetitorWorker, workerB: CompetitorWorker, a: Competitor, b: Competitor) {
     this.referee = referee;
     this.workerA = workerA;
     this.workerB = workerB;
@@ -90,9 +110,9 @@ export class MatchSession {
   static async create(a: Competitor, b: Competitor): Promise<MatchSession> {
     const referee = new WorkerClient();
     const [, workerA, workerB] = await Promise.all([
-      referee.init(WASM_BASE_PATH.current),
-      createMoverClient(a.engine),
-      createMoverClient(b.engine),
+      referee.init(wasmBasePathFor("current")),
+      createCompetitorWorker(a.engine),
+      createCompetitorWorker(b.engine),
     ]);
     return new MatchSession(referee, workerA, workerB, a, b);
   }
@@ -109,12 +129,13 @@ export class MatchSession {
     const blackMovetimeMs = aIsWhite ? this.b.movetimeMs : this.a.movetimeMs;
 
     let fen = START_FEN;
+    const moves: string[] = [];
     let ply = 0;
 
     while (ply < maxPlies) {
       if (shouldStop?.()) return { status: "stopped", winner: null, plies: ply, finalFen: fen };
 
-      const status = await this.referee.gameStatus(fen);
+      const status = await this.referee.gameStatus(START_FEN, moves);
       if (status !== "ongoing") {
         const winner = status === "checkmate" ? (activeColor(fen) === "w" ? "black" : "white") : null;
         return { status, winner, plies: ply, finalFen: fen };
@@ -124,9 +145,10 @@ export class MatchSession {
       const mover = isWhiteToMove ? whiteWorker : blackWorker;
       const movetimeMs = isWhiteToMove ? whiteMovetimeMs : blackMovetimeMs;
 
-      const move = await mover.findBestMove(fen, movetimeMs);
+      const move = await findBestMove(mover, moves, fen, movetimeMs);
       const { from, to, promotion } = parseMove(move);
       fen = await this.referee.applyMove(fen, from, to, promotion);
+      moves.push(move);
       ply++;
       onMove?.(fen, ply);
     }
@@ -161,7 +183,7 @@ export class MatchSession {
 
   dispose(): void {
     this.referee.terminate();
-    this.workerA.terminate();
-    this.workerB.terminate();
+    this.workerA.client.terminate();
+    this.workerB.client.terminate();
   }
 }

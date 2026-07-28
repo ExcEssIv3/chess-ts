@@ -9,7 +9,7 @@ import { Board } from "../engine/board";
 // that's cheap, self-contained parsing that doesn't need the engine loaded.
 interface EngineCsExports {
   ApplyMove(fen: string, from: string, to: string, promotion: string | null): string;
-  FindBestMove(fen: string, depth: number, movetimeMs: number): string;
+  FindBestMove(startFen: string, moves: string, depth: number, movetimeMs: number): string;
 }
 
 // Exceptions thrown by EngineInterop.cs cross the JS/WASM boundary as plain
@@ -20,6 +20,14 @@ interface EngineCsExports {
 const ILLEGAL_MOVE_MESSAGE = "Invalid move";
 
 let currentFen: string = START_FEN;
+// FindBestMove needs the position replayed from a starting FEN + move list
+// (see EngineInterop.ReplayHistory) rather than just the current FEN, so it
+// can track repetition across the real game — gameStartFen/moveHistory are
+// that pair, reset together whenever the game itself restarts (newGame) or
+// the user pastes an arbitrary FEN (setFen, which is treated as a fresh
+// start with no prior history, since there's no way to know what led there).
+let gameStartFen: string = START_FEN;
+let moveHistory: string[] = [];
 let enginePromise: Promise<EngineCsExports> | null = null;
 
 async function loadEngine(): Promise<EngineCsExports> {
@@ -54,6 +62,8 @@ self.addEventListener("message", async (e: MessageEvent<EngineCommand>) => {
 
       case "newGame":
         currentFen = START_FEN;
+        gameStartFen = START_FEN;
+        moveHistory = [];
         post({ type: "reset", fen: currentFen });
         break;
 
@@ -61,12 +71,15 @@ self.addEventListener("message", async (e: MessageEvent<EngineCommand>) => {
         // round-trip through Board so a malformed FEN throws here (caught below)
         // rather than corrupting currentFen with something later calls can't parse.
         currentFen = new Board(cmd.fen).convertFen();
+        gameStartFen = currentFen;
+        moveHistory = [];
         post({ type: "reset", fen: currentFen });
         break;
 
       case "userMove": {
         try {
           currentFen = engine.ApplyMove(currentFen, cmd.from, cmd.to, cmd.promotion ?? null);
+          moveHistory.push(cmd.from + cmd.to + (cmd.promotion ?? ""));
           post({
             type: "moveApplied",
             fen: currentFen,
@@ -86,9 +99,10 @@ self.addEventListener("message", async (e: MessageEvent<EngineCommand>) => {
       }
 
       case "go": {
-        const move = engine.FindBestMove(currentFen, cmd.depth ?? 0, cmd.movetimeMs ?? 0);
+        const move = engine.FindBestMove(gameStartFen, moveHistory.join("|"), cmd.depth ?? 0, cmd.movetimeMs ?? 0);
         const [from, to, promotion] = [move.slice(0, 2), move.slice(2, 4), move.slice(4) || undefined];
         currentFen = engine.ApplyMove(currentFen, from, to, promotion ?? null);
+        moveHistory.push(move);
         post({ type: "moveApplied", fen: currentFen, from, to, promotion, by: "engine" });
         break;
       }

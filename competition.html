@@ -84,7 +84,7 @@
     <div class="page">
       <nav><a href="index.html">&larr; Back to Play</a></nav>
       <h1>Engine Competition</h1>
-      <div id="compare-status">Checking for a comparison build&hellip;</div>
+      <div id="compare-status">Checking for comparison builds&hellip;</div>
 
       <div class="competitor-config">
         <fieldset>
@@ -94,7 +94,8 @@
             <select id="competitor-a-engine">
               <optgroup label="WASM builds">
                 <option value="wasm:current">Current build</option>
-                <option value="wasm:compare">Comparison build</option>
+                <option value="wasm:pre-quiescence">Pre-quiescence build</option>
+                <option value="wasm:pre-repetition">Pre-repetition build</option>
               </optgroup>
               <optgroup label="TypeScript reference">
                 <option value="ts:latest">TS latest</option>
@@ -117,7 +118,8 @@
             <select id="competitor-b-engine">
               <optgroup label="WASM builds">
                 <option value="wasm:current">Current build</option>
-                <option value="wasm:compare" selected>Comparison build</option>
+                <option value="wasm:pre-quiescence" selected>Pre-quiescence build</option>
+                <option value="wasm:pre-repetition">Pre-repetition build</option>
               </optgroup>
               <optgroup label="TypeScript reference">
                 <option value="ts:latest">TS latest</option>

@@ -3,16 +3,23 @@ import type { TsEngineVersion } from "./worker/tsEngineProtocol";
 import { createBoard, type ChessboardInstance } from "./ui/board";
 
 interface CompareManifest {
+  label: string;
   ref: string;
   resolvedCommit: string;
   builtAt: string;
 }
 
-let compareManifest: CompareManifest | null = null;
+// Additional labeled comparison builds the UI offers — each corresponds to
+// an `npm run build:compare-engine -- <ref> <label>` output directory
+// (public/dotnet-engine-<label>/). Add another entry here (and a matching
+// <option> in competition.html) to offer a further comparison slot.
+const COMPARE_LABELS = ["pre-quiescence", "pre-repetition"] as const;
 
-async function loadCompareManifest(): Promise<CompareManifest | null> {
+const compareManifests = new Map<string, CompareManifest>();
+
+async function loadCompareManifest(label: string): Promise<CompareManifest | null> {
   try {
-    const res = await fetch(`${import.meta.env.BASE_URL}dotnet-engine-compare/manifest.json`);
+    const res = await fetch(`${import.meta.env.BASE_URL}dotnet-engine-${label}/manifest.json`);
     if (!res.ok) return null;
     return (await res.json()) as CompareManifest;
   } catch {
@@ -23,15 +30,25 @@ async function loadCompareManifest(): Promise<CompareManifest | null> {
 async function renderCompareStatus() {
   const statusEl = document.getElementById("compare-status");
   if (!statusEl) return;
-  compareManifest = await loadCompareManifest();
-  if (compareManifest) {
-    const shortCommit = compareManifest.resolvedCommit.slice(0, 8);
-    const builtAt = new Date(compareManifest.builtAt).toLocaleString();
-    statusEl.textContent = `Comparison build: ${compareManifest.ref} (${shortCommit}), built ${builtAt}`;
-  } else {
-    statusEl.textContent =
-      "No comparison build found. Run: npm run build:compare-engine -- <git-ref>, then reload this page.";
+
+  const lines: string[] = [];
+  for (const label of COMPARE_LABELS) {
+    const manifest = await loadCompareManifest(label);
+    if (manifest) {
+      compareManifests.set(label, manifest);
+      const shortCommit = manifest.resolvedCommit.slice(0, 8);
+      const builtAt = new Date(manifest.builtAt).toLocaleString();
+      lines.push(`"${label}": ${manifest.ref} (${shortCommit}), built ${builtAt}`);
+    } else {
+      lines.push(`"${label}": not built — run npm run build:compare-engine -- <git-ref> ${label}`);
+    }
   }
+
+  statusEl.textContent = "";
+  lines.forEach((line, i) => {
+    if (i > 0) statusEl.appendChild(document.createElement("br"));
+    statusEl.appendChild(document.createTextNode(line));
+  });
 }
 
 const TS_VERSION_LABELS: Record<TsEngineVersion, string> = {
@@ -46,7 +63,8 @@ function parseEngineSelection(value: string): { engine: EngineRef; label: string
   const [kind, id] = value.split(":");
   if (kind === "wasm") {
     const build = id as BuildId;
-    const label = build === "current" ? "Current" : compareManifest ? `Comparison (${compareManifest.ref})` : "Comparison";
+    const manifest = compareManifests.get(build);
+    const label = build === "current" ? "Current" : manifest ? `${build} (${manifest.ref})` : build;
     return { engine: { kind: "wasm", build }, label };
   }
   const version = id as TsEngineVersion;

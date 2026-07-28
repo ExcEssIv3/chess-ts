@@ -10,10 +10,12 @@
     <Compile Include="../Utils.cs" />
     <Compile Include="../Attacks.cs" />
     <Compile Include="../Board.cs" />
+    <Compile Include="../Zobrist.cs" />
     <Compile Include="../Legality.cs" />
     <Compile Include="../Movegen.cs" />
     <Compile Include="../Evaluation.cs" />
     <Compile Include="../PieceSquareTables.cs" />
     <Compile Include="../Search.cs" />
+    <Compile Include="../EngineInterop.cs" />
   </ItemGroup>
 </Project>

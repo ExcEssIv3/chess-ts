@@ -40,8 +40,8 @@ export class WorkerClient {
     await this.send({ type: "init", wasmBasePath });
   }
 
-  async findBestMove(fen: string, movetimeMs: number): Promise<string> {
-    const event = await this.send({ type: "findBestMove", fen, movetimeMs });
+  async findBestMove(fen: string, startFen: string, moves: string[], movetimeMs: number): Promise<string> {
+    const event = await this.send({ type: "findBestMove", fen, startFen, moves, movetimeMs });
     if (event.type !== "bestMove") throw new Error(`Expected bestMove, got ${event.type}`);
     return event.move;
   }
@@ -53,8 +53,8 @@ export class WorkerClient {
     return event.fen;
   }
 
-  async gameStatus(fen: string): Promise<"ongoing" | "checkmate" | "stalemate"> {
-    const event = await this.send({ type: "gameStatus", fen });
+  async gameStatus(startFen: string, moves: string[]): Promise<"ongoing" | "checkmate" | "stalemate" | "threefold-repetition"> {
+    const event = await this.send({ type: "gameStatus", startFen, moves });
     if (event.type !== "status") throw new Error(`Expected status, got ${event.type}`);
     return event.status;
   }
