@@ -57,6 +57,17 @@ function parseMoveWithEval(raw: string): { move: string; value: number } {
   return { move: raw.slice(0, spaceIdx), value: Number(raw.slice(spaceIdx + 1)) };
 }
 
+// A missing JSExport surfaces as a plain JS TypeError ("X is not a
+// function") when the call is attempted — that's the only case that
+// actually means "this build predates the newer API." Any other error
+// (a bad argument type, a real search failure, etc.) must propagate instead
+// of being silently reinterpreted as "old build" and routed into the
+// mismatched-arity legacy fallback below, which expects different argument
+// positions entirely.
+function isMissingExportError(err: unknown): boolean {
+  return err instanceof TypeError && /is not a function/.test(err.message);
+}
+
 async function resolveMove(
   engine: EngineCsExports,
   cmd: Extract<CompetitionCommand, { type: "findBestMove" }>
@@ -69,7 +80,8 @@ async function resolveMove(
       supportsEval = true;
       supportsHistory = true;
       return parseMoveWithEval(raw);
-    } catch {
+    } catch (err) {
+      if (!isMissingExportError(err)) throw err;
       supportsEval = false;
       // Fall through — this build might still support plain history-aware
       // FindBestMove even without the WithEval export.
@@ -81,7 +93,8 @@ async function resolveMove(
       const move = engine.FindBestMove(cmd.startFen, serializeMoves(cmd.moves), 0, cmd.movetimeMs);
       supportsHistory = true;
       return { move };
-    } catch {
+    } catch (err) {
+      if (!isMissingExportError(err)) throw err;
       supportsHistory = false;
     }
   }

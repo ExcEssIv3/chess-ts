@@ -15,17 +15,22 @@
 // Time control: none of these versions honor movetimeMs internally (they
 // only obey a fixed depth, and can't be interrupted mid-search), so "equal
 // thinking time" is approximated at the harness level via iterative
-// deepening between whole-depth calls — increase depth while the wall-clock
-// budget remains, then play the best move from the last depth that
+// deepening between whole-depth calls — increase depth while the current
+// move's budget remains, then play the best move from the last depth that
 // finished in time. This makes newer, slower-per-node versions (e.g. PST)
 // comparable to older, faster-per-node ones on equal footing instead of
 // equal (and very unequal-effort) fixed depth.
 //
-// Run with: npm run tournament -- [gamesPerPairing] [budgetMs] [maxPlies]
+// Each side plays on a real chess clock (see computeBudgetMs) rather than a
+// fixed per-move budget or an overall game-length cap: a side that runs its
+// clock out loses on time, same as src/competition/match.ts.
+//
+// Run with: npm run tournament -- [gamesPerPairing] [startMs] [incrementMs]
 
 import { performance } from "node:perf_hooks";
 import { Board } from "../src/engine/board";
 import { checkDanger, findLegalMoves } from "../src/engine/movegen";
+import { computeBudgetMs } from "../src/competition/timeManagement";
 import * as latest from "../src/engine";
 import * as v1 from "./versions/v1-depth1-material/index";
 import * as v2 from "./versions/v2-recursive-negamax/index";
@@ -98,30 +103,51 @@ function pickMove(engine: EngineModule, fen: string, budgetMs: number): { move: 
 }
 
 interface GameResult {
-  result: "checkmate" | "stalemate" | "max-ply-draw";
+  result: "checkmate" | "stalemate" | "time-forfeit" | "ply-safety-cap";
   winner: "white" | "black" | null;
   plies: number;
 }
 
-function playGame(white: EngineVersion, black: EngineVersion, budgetMs: number, maxPlies: number): GameResult {
+// Last-resort circuit breaker, not a real draw rule — see the header comment
+// on src/competition/match.ts's PLY_SAFETY_CAP for why a generous enough
+// increment could in principle prevent a clock from ever running out.
+const PLY_SAFETY_CAP = 1000;
+
+function playGame(white: EngineVersion, black: EngineVersion, startMs: number, incrementMs: number): GameResult {
   let fen = START_FEN;
   let ply = 0;
+  let whiteRemainingMs = startMs;
+  let blackRemainingMs = startMs;
 
-  while (ply < maxPlies) {
+  while (ply < PLY_SAFETY_CAP) {
     const status = gameStatus(fen);
     if (status !== "ongoing") {
       const winner = status === "checkmate" ? (activeColor(fen) === "w" ? "black" : "white") : null;
       return { result: status, winner, plies: ply };
     }
 
-    const mover = activeColor(fen) === "w" ? white : black;
+    const isWhiteToMove = activeColor(fen) === "w";
+    const mover = isWhiteToMove ? white : black;
+    const remainingMs = isWhiteToMove ? whiteRemainingMs : blackRemainingMs;
+    const budgetMs = computeBudgetMs(remainingMs, incrementMs);
+
+    const moveStart = performance.now();
     const { move } = pickMove(mover.module, fen, budgetMs);
+    const remainingAfterThink = remainingMs - (performance.now() - moveStart);
+
+    if (remainingAfterThink <= 0) {
+      const winner = isWhiteToMove ? "black" : "white";
+      return { result: "time-forfeit", winner, plies: ply };
+    }
+    if (isWhiteToMove) whiteRemainingMs = remainingAfterThink + incrementMs;
+    else blackRemainingMs = remainingAfterThink + incrementMs;
+
     const { from, to, promotion } = parseMove(move);
     fen = latest.applyMove(fen, from, to, promotion).fen;
     ply++;
   }
 
-  return { result: "max-ply-draw", winner: null, plies: ply };
+  return { result: "ply-safety-cap", winner: null, plies: ply };
 }
 
 interface MatchTally {
@@ -130,7 +156,7 @@ interface MatchTally {
   draws: number;
 }
 
-function runMatch(a: EngineVersion, b: EngineVersion, games: number, budgetMs: number, maxPlies: number): MatchTally {
+function runMatch(a: EngineVersion, b: EngineVersion, games: number, startMs: number, incrementMs: number): MatchTally {
   const tally: MatchTally = { aWins: 0, bWins: 0, draws: 0 };
 
   for (let g = 0; g < games; g++) {
@@ -138,7 +164,7 @@ function runMatch(a: EngineVersion, b: EngineVersion, games: number, budgetMs: n
     const white = aIsWhite ? a : b;
     const black = aIsWhite ? b : a;
     const start = performance.now();
-    const outcome = playGame(white, black, budgetMs, maxPlies);
+    const outcome = playGame(white, black, startMs, incrementMs);
     const elapsedS = ((performance.now() - start) / 1000).toFixed(1);
 
     let outcomeLabel: string;
@@ -162,18 +188,18 @@ function runMatch(a: EngineVersion, b: EngineVersion, games: number, budgetMs: n
 
 function main() {
   const games = process.argv[2] ? parseInt(process.argv[2], 10) : 2;
-  const budgetMs = process.argv[3] ? parseInt(process.argv[3], 10) : 1000;
-  const maxPlies = process.argv[4] ? parseInt(process.argv[4], 10) : 150;
+  const startMs = process.argv[3] ? parseInt(process.argv[3], 10) : 60_000;
+  const incrementMs = process.argv[4] ? parseInt(process.argv[4], 10) : 1_000;
 
   console.log(`Roster: ${ROSTER.map((v) => v.label).join(", ")}`);
-  console.log(`${games} games/pairing, ${budgetMs}ms/move budget, ${maxPlies}-ply draw cap\n`);
+  console.log(`${games} games/pairing, ${startMs}ms+${incrementMs}ms clock\n`);
 
   for (let i = 0; i < ROSTER.length; i++) {
     for (let j = i + 1; j < ROSTER.length; j++) {
       const a = ROSTER[i];
       const b = ROSTER[j];
       console.log(`${a.label} vs ${b.label}:`);
-      const tally = runMatch(a, b, games, budgetMs, maxPlies);
+      const tally = runMatch(a, b, games, startMs, incrementMs);
       console.log(`  => ${a.label} ${tally.aWins} - ${tally.bWins} ${b.label} (${tally.draws} draws)\n`);
     }
   }

@@ -78,6 +78,14 @@
         padding-left: 20px;
         font-size: 13px;
       }
+      #clock-display {
+        display: flex;
+        justify-content: space-between;
+        font-size: 15px;
+        font-weight: bold;
+        font-variant-numeric: tabular-nums;
+        margin-top: 8px;
+      }
       #eval-display {
         text-align: center;
         font-size: 15px;
@@ -104,6 +112,7 @@
                 <option value="wasm:pre-repetition">Pre-repetition build</option>
                 <option value="wasm:pre-mate-scoring">Pre-mate-scoring build</option>
                 <option value="wasm:pre-tt">Pre-transposition-table build</option>
+                <option value="wasm:pre-king-drive">Pre-king-drive-eval build</option>
               </optgroup>
               <optgroup label="TypeScript reference">
                 <option value="ts:latest">TS latest</option>
@@ -115,8 +124,12 @@
             </select>
           </label>
           <label>
-            Think time (ms):
-            <input type="number" id="competitor-a-movetime" value="500" min="10" step="50" />
+            Starting time (ms):
+            <input type="number" id="competitor-a-start-ms" value="60000" min="100" step="1000" />
+          </label>
+          <label>
+            Increment (ms):
+            <input type="number" id="competitor-a-increment-ms" value="1000" min="0" step="100" />
           </label>
         </fieldset>
         <fieldset>
@@ -129,7 +142,8 @@
                 <option value="wasm:pre-quiescence">Pre-quiescence build</option>
                 <option value="wasm:pre-repetition">Pre-repetition build</option>
                 <option value="wasm:pre-mate-scoring">Pre-mate-scoring build</option>
-                <option value="wasm:pre-tt" selected>Pre-transposition-table build</option>
+                <option value="wasm:pre-tt">Pre-transposition-table build</option>
+                <option value="wasm:pre-king-drive" selected>Pre-king-drive-eval build</option>
               </optgroup>
               <optgroup label="TypeScript reference">
                 <option value="ts:latest">TS latest</option>
@@ -141,8 +155,12 @@
             </select>
           </label>
           <label>
-            Think time (ms):
-            <input type="number" id="competitor-b-movetime" value="500" min="10" step="50" />
+            Starting time (ms):
+            <input type="number" id="competitor-b-start-ms" value="60000" min="100" step="1000" />
+          </label>
+          <label>
+            Increment (ms):
+            <input type="number" id="competitor-b-increment-ms" value="1000" min="0" step="100" />
           </label>
         </fieldset>
       </div>
@@ -160,7 +178,6 @@
 
       <div id="batch-panel" class="hidden">
         <label>Games: <input type="number" id="batch-games" value="10" min="1" /></label>
-        <label>Max plies/game: <input type="number" id="batch-max-plies" value="150" min="1" /></label>
         <button id="batch-start" type="button">Start batch</button>
         <div id="batch-status"></div>
         <table id="batch-scoreboard">
@@ -176,6 +193,12 @@
       <!-- Shared between live and batch modes: batch shows whichever game
            in the run is currently in progress, same spectator board. -->
       <div id="board-wrapper"><div id="board"></div></div>
+      <!-- Each side's remaining clock time after the last move played — see
+           src/competition/match.ts's ClockSnapshot. -->
+      <div id="clock-display">
+        <span id="white-clock">White: —</span>
+        <span id="black-clock">Black: —</span>
+      </div>
       <!-- White-relative eval after the last move played, from whichever
            engine just moved — see EngineInterop.FindBestMoveWithEval. -->
       <div id="eval-display">Eval: —</div>

@@ -1,4 +1,4 @@
-import { MatchSession, type BuildId, type Competitor, type EngineRef, type GameResult } from "./competition/match";
+import { MatchSession, type BuildId, type ClockSnapshot, type Competitor, type EngineRef, type GameResult } from "./competition/match";
 import { OPENING_BOOK } from "./competition/openings";
 import type { TsEngineVersion } from "./worker/tsEngineProtocol";
 import { createBoard, type ChessboardInstance } from "./ui/board";
@@ -18,7 +18,7 @@ interface CompareManifest {
 // an `npm run build:compare-engine -- <ref> <label>` output directory
 // (public/dotnet-engine-<label>/). Add another entry here (and a matching
 // <option> in competition.html) to offer a further comparison slot.
-const COMPARE_LABELS = ["pre-quiescence", "pre-repetition", "pre-mate-scoring", "pre-tt"] as const;
+const COMPARE_LABELS = ["pre-quiescence", "pre-repetition", "pre-mate-scoring", "pre-tt", "pre-king-drive"] as const;
 
 const compareManifests = new Map<string, CompareManifest>();
 
@@ -78,10 +78,12 @@ function parseEngineSelection(value: string): { engine: EngineRef; label: string
 
 function readCompetitor(prefix: "a" | "b"): Competitor {
   const engineSelect = document.getElementById(`competitor-${prefix}-engine`) as HTMLSelectElement;
-  const movetimeInput = document.getElementById(`competitor-${prefix}-movetime`) as HTMLInputElement;
-  const movetimeMs = parseInt(movetimeInput.value, 10) || 500;
+  const startMsInput = document.getElementById(`competitor-${prefix}-start-ms`) as HTMLInputElement;
+  const incrementMsInput = document.getElementById(`competitor-${prefix}-increment-ms`) as HTMLInputElement;
+  const startMs = parseInt(startMsInput.value, 10) || 60_000;
+  const incrementMs = parseInt(incrementMsInput.value, 10) || 0;
   const { engine, label } = parseEngineSelection(engineSelect.value);
-  return { label, engine, movetimeMs };
+  return { label, engine, clock: { startMs, incrementMs } };
 }
 
 function describeResult(result: GameResult, a: Competitor, b: Competitor, aIsWhite: boolean): string {
@@ -92,7 +94,8 @@ function describeResult(result: GameResult, a: Competitor, b: Competitor, aIsWhi
     return `Draw (${result.status}) after ${result.plies} plies — White: ${whiteLabel}, Black: ${blackLabel}`;
   }
   const winnerLabel = result.winner === "white" ? whiteLabel : blackLabel;
-  return `${winnerLabel} wins as ${result.winner} (${result.status}) after ${result.plies} plies`;
+  const reason = result.status === "time-forfeit" ? "on time" : `(${result.status})`;
+  return `${winnerLabel} wins as ${result.winner} ${reason} after ${result.plies} plies`;
 }
 
 function errorMessage(err: unknown): string {
@@ -117,6 +120,22 @@ function formatEval(value: number | undefined): string {
 const evalDisplayEl = document.getElementById("eval-display")!;
 function updateEvalDisplay(value: number | undefined): void {
   evalDisplayEl.textContent = `Eval: ${formatEval(value)}`;
+}
+
+// "119000" -> "1:59". Clamped to 0 since a flagged clock can otherwise show
+// a negative remainder (see match.ts's time-forfeit check).
+function formatClock(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
+}
+
+const whiteClockEl = document.getElementById("white-clock")!;
+const blackClockEl = document.getElementById("black-clock")!;
+function updateClockDisplay(clocks: ClockSnapshot | undefined): void {
+  whiteClockEl.textContent = `White: ${clocks ? formatClock(clocks.whiteMs) : "—"}`;
+  blackClockEl.textContent = `Black: ${clocks ? formatClock(clocks.blackMs) : "—"}`;
 }
 
 renderCompareStatus();
@@ -166,6 +185,8 @@ liveStartBtn.addEventListener("click", async () => {
 
   const a = readCompetitor("a");
   const b = readCompetitor("b");
+  // Live mode always plays a as white, b as black (see the `true` below).
+  updateClockDisplay({ whiteMs: a.clock.startMs, blackMs: b.clock.startMs });
 
   try {
     liveSession = await MatchSession.create(a, b);
@@ -175,11 +196,11 @@ liveStartBtn.addEventListener("click", async () => {
     liveStatusEl.textContent = `Playing (${opening.name})…`;
     const result = await liveSession.playGame(
       true,
-      150,
       openingFen,
-      (fen, _ply, value) => {
+      (fen, _ply, value, clocks) => {
         board.position(fen);
         updateEvalDisplay(value);
+        updateClockDisplay(clocks);
       },
       () => liveStopRequested
     );
@@ -201,7 +222,6 @@ liveStopBtn.addEventListener("click", () => {
 // --- Headless batch mode ---
 
 const batchGamesEl = document.getElementById("batch-games") as HTMLInputElement;
-const batchMaxPliesEl = document.getElementById("batch-max-plies") as HTMLInputElement;
 const batchStartBtn = document.getElementById("batch-start") as HTMLButtonElement;
 const batchStatusEl = document.getElementById("batch-status")!;
 const batchLogEl = document.getElementById("batch-log")!;
@@ -224,7 +244,6 @@ batchStartBtn.addEventListener("click", async () => {
   const a = readCompetitor("a");
   const b = readCompetitor("b");
   const games = parseInt(batchGamesEl.value, 10) || 1;
-  const maxPlies = parseInt(batchMaxPliesEl.value, 10) || 150;
 
   let session: MatchSession | null = null;
   let aWins = 0;
@@ -239,7 +258,6 @@ batchStartBtn.addEventListener("click", async () => {
 
     await session.runBatch(
       games,
-      maxPlies,
       (gameNumber, aIsWhite, result) => {
         if (result.winner === null) draws++;
         else if ((result.winner === "white") === aIsWhite) aWins++;
@@ -253,13 +271,17 @@ batchStartBtn.addEventListener("click", async () => {
         li.textContent = `Game ${gameNumber + 1}/${games} (${currentOpeningName}): ${describeResult(result, a, b, aIsWhite)}`;
         batchLogEl.appendChild(li);
       },
-      (fen, _ply, value) => {
+      (fen, _ply, value, clocks) => {
         board.position(fen);
         updateEvalDisplay(value);
+        updateClockDisplay(clocks);
       },
       () => {
         // Picks (and displays) a fresh random opening for each game in the
-        // batch — called once per game, right before it starts.
+        // batch — called once per game, right before it starts. Which
+        // competitor is white flips every game (see runBatch), so the clock
+        // display is left as-is here and picked back up by the first onMove
+        // of the new game rather than guessed at.
         const { opening, fen } = pickRandom(resolvedOpenings);
         currentOpeningName = opening.name;
         board.position(fen);
