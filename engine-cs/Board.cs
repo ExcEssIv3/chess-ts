@@ -37,6 +37,8 @@ public struct BoardUndo
     public int CastleRookToSquare;
     public int PrevPhaseSum;
     public ulong PrevPositionKey;
+    public int PrevWhiteValue;
+    public int PrevBlackValue;
 }
 
 /// <summary>
@@ -47,9 +49,11 @@ public class Board
 {
     public ulong WPawns, WRooks, WKnights, WBishops, WQueens, WKing;
     public ulong WOccupancy;
+    public int WValue;
 
     public ulong BPawns, BRooks, BKnights, BBishops, BQueens, BKing;
     public ulong BOccupancy;
+    public int BValue;
 
     /// <summary>Sum of Evaluation.PhaseValue across all pieces on the board — 24 at game start, trending toward 0 as material is traded off. Used to taper mg/eg evaluation.</summary>
     public int PhaseSum;
@@ -83,16 +87,16 @@ public class Board
             {
                 case '/': rank--; file = 0; break;
                 case 'p': BPawns |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'n': BKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('n'); break;
-                case 'b': BBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('b'); break;
-                case 'r': BRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('r'); break;
-                case 'q': BQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('q'); break;
+                case 'n': BKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('n'); BValue += Evaluation.PieceValue('n'); break;
+                case 'b': BBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('b'); BValue += Evaluation.PieceValue('b'); break;
+                case 'r': BRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('r'); BValue += Evaluation.PieceValue('r'); break;
+                case 'q': BQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('q'); BValue += Evaluation.PieceValue('q'); break;
                 case 'k': BKing |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
                 case 'P': WPawns |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
-                case 'N': WKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('N'); break;
-                case 'B': WBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('B'); break;
-                case 'R': WRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('R'); break;
-                case 'Q': WQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('Q'); break;
+                case 'N': WKnights |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('N'); WValue += Evaluation.PieceValue('N'); break;
+                case 'B': WBishops |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('B'); WValue += Evaluation.PieceValue('B'); break;
+                case 'R': WRooks |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('R'); WValue += Evaluation.PieceValue('R'); break;
+                case 'Q': WQueens |= 1UL << Utils.RankFileToSquare(rank, file); file++; PhaseSum += Evaluation.PhaseValue('Q'); WValue += Evaluation.PieceValue('Q'); break;
                 case 'K': WKing |= 1UL << Utils.RankFileToSquare(rank, file); file++; break;
                 default:
                     if (!char.IsDigit(c)) throw new Exception("Invalid fen.");
@@ -309,7 +313,9 @@ public class Board
             CastleRookFromSquare = -1,
             CastleRookToSquare = -1,
             PrevPhaseSum = PhaseSum,
-            PrevPositionKey = PositionKey
+            PrevPositionKey = PositionKey,
+            PrevWhiteValue = WValue,
+            PrevBlackValue = BValue
         };
 
         if (promotion is not null)
@@ -318,11 +324,25 @@ public class Board
             // whatever it promoted to, not the pawn itself.
             XORPieceToPositionKey(piece, Utils.BitToSquare(start), -1);
             XORPieceToPositionKey(promotion.Value, -1, Utils.BitToSquare(finish));
+            if (WhiteToMove)
+            {
+                WValue += Evaluation.PieceValue(promotion.Value);
+            } else
+            {
+                BValue += Evaluation.PieceValue(promotion.Value);
+            }
         } else XORPieceToPositionKey(piece, Utils.BitToSquare(start), Utils.BitToSquare(finish));
 
         if (capturedPiece is not null)
         {
             PhaseSum -= Evaluation.PhaseValue(capturedPiece.Value);
+            if (WhiteToMove)
+            {
+                BValue -= Evaluation.PieceValue(capturedPiece.Value);
+            } else
+            {
+                WValue -= Evaluation.PieceValue(capturedPiece.Value);
+            }
             // this will never include en passant
             XORPieceToPositionKey(capturedPiece.Value, -1, Utils.BitToSquare(finish));
         }
@@ -386,6 +406,7 @@ public class Board
                             undo.CapturedPiece = 'P';
                             undo.CapturedSquare = finishSquare + 8;
                             XORPieceToPositionKey('P', -1, Utils.BitToSquare(capBit));
+                            WValue -= Evaluation.PieceValue('P');
                         }
                         EnPassantSquare = -1;
                     }
@@ -432,6 +453,7 @@ public class Board
                             undo.CapturedPiece = 'p';
                             undo.CapturedSquare = finishSquare - 8;
                             XORPieceToPositionKey('p', -1, Utils.BitToSquare(capBit));
+                            BValue -= Evaluation.PieceValue('p');
                         }
                         EnPassantSquare = -1;
                     }
@@ -498,6 +520,8 @@ public class Board
         FullmoveNumber = undo.PrevFullmoveNumber;
         PhaseSum = undo.PrevPhaseSum;
         PositionKey = undo.PrevPositionKey;
+        WValue = undo.PrevWhiteValue;
+        BValue = undo.PrevBlackValue;
 
         char pieceOnFinish = promotion ?? undo.MovedPieceOriginal;
         SetPieceBit(pieceOnFinish, finish, false);

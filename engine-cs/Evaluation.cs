@@ -1,3 +1,5 @@
+using System;
+
 namespace EngineCs;
 
 /// <summary>
@@ -57,7 +59,7 @@ public static class Evaluation
                 else if ((board.WKnights & loc) != 0) { whiteTotal += KnightValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.KnightMg, PieceSquareTables.KnightEg); }
                 else if ((board.WBishops & loc) != 0) { whiteTotal += BishopValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.BishopMg, PieceSquareTables.BishopEg); }
                 else if ((board.WQueens & loc) != 0) { whiteTotal += QueenValue + CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.QueenMg, PieceSquareTables.QueenEg); }
-                else { whiteTotal += CalculateSquareValue(i, board.PhaseSum, PieceSquareTables.KingMg, PieceSquareTables.KingEg); }
+                else { whiteTotal += CalculateSquareValueKingDriveBonus(board, i, i, true, PieceSquareTables.KingMg, PieceSquareTables.KingEg); }
             }
             else if ((board.BOccupancy & loc) != 0)
             {
@@ -67,7 +69,7 @@ public static class Evaluation
                 else if ((board.BKnights & loc) != 0) { blackTotal += KnightValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.KnightMg, PieceSquareTables.KnightEg); }
                 else if ((board.BBishops & loc) != 0) { blackTotal += BishopValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.BishopMg, PieceSquareTables.BishopEg); }
                 else if ((board.BQueens & loc) != 0) { blackTotal += QueenValue + CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.QueenMg, PieceSquareTables.QueenEg); }
-                else { blackTotal += CalculateSquareValue(mirrored, board.PhaseSum, PieceSquareTables.KingMg, PieceSquareTables.KingEg); }
+                else { blackTotal += CalculateSquareValueKingDriveBonus(board, mirrored, i, false, PieceSquareTables.KingMg, PieceSquareTables.KingEg); }
             }
         }
 
@@ -77,5 +79,31 @@ public static class Evaluation
     private static int CalculateSquareValue(int square, int phaseSum, int[] midgameBoard, int[] endgameBoard)
     {
         return (midgameBoard[square] * phaseSum + endgameBoard[square] * (MaxPhase - phaseSum)) / MaxPhase;
+    }
+
+    private static int CalculateDistance(int startSquare, int finishSquare)
+    {
+        int fileDelta = (startSquare % 8) - (finishSquare % 8);
+        int rankDelta = (startSquare / 8) - (finishSquare / 8);
+
+        return Math.Max(Math.Abs(fileDelta), Math.Abs(rankDelta));
+    }
+
+    // pstSquare is the (possibly mirrored) square used only for the PST table
+    // lookup; realSquare is this king's actual board square, used for the
+    // king-distance calculation — the two differ for Black, whose PST lookup
+    // mirrors vertically (see the `mirrored` call site) but whose real
+    // position on the board is not mirrored.
+    private static int CalculateSquareValueKingDriveBonus(Board board, int pstSquare, int realSquare, bool isWhiteKing, int[] midgameBoard, int[] endgameBoard)
+    {
+        int baseValue = CalculateSquareValue(pstSquare, board.PhaseSum, midgameBoard, endgameBoard);
+
+        int advantage = board.WValue - board.BValue;
+        bool thisKingIsWinning = isWhiteKing ? advantage > 0 : advantage < 0;
+        if (!thisKingIsWinning) return baseValue;
+
+        int enemyKingPosition = Utils.BitToSquare(isWhiteKing ? board.BKing : board.WKing);
+        int distance = CalculateDistance(realSquare, enemyKingPosition);
+        return baseValue + (800 - distance * 100) * (MaxPhase - board.PhaseSum) / MaxPhase;
     }
 }
