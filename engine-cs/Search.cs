@@ -66,7 +66,8 @@ public static class Search
         Dictionary<ulong, PositionInfo> positionCounts,
         int ply,
         EngineMove? recommendedMove = null,
-        SearchDeadline? rootDeadline = null)
+        SearchDeadline? rootDeadline = null,
+        TranspositionTable? tt = null)
     {
         // Checked before movegen: a threefold repetition is a draw
         // unconditionally, regardless of whose move it is or what moves
@@ -91,8 +92,28 @@ public static class Search
         // (one flat ply of material+PST eval, no recursion, no pruning).
         if (searchOptions.Depth.HasValue && searchOptions.Depth.Value != 0)
         {
+            // Probes THIS node's own position (board hasn't been mutated
+            // yet in this call) — not a child's. Returning a cached child
+            // entry here directly would be wrong on two counts: its Value
+            // is from the opponent's perspective (needs negating, like
+            // every other child score below) and its Move is only legal
+            // one ply further in, not at this node — feeding that back out
+            // as this node's bestMove corrupts the recommendedMove RunIterative
+            // passes into the next depth's root call, since FindLegalMoves
+            // adds recommendedMove unchecked (see below) and MakeMove has no
+            // legality check of its own.
+            SearchEvaluation? cached = tt?.CheckTable(board.PositionKey, searchOptions.Depth ?? 0, alpha, beta, ply);
+            if (cached is not null) return cached.Value;
+
             int maxMoveValue = int.MinValue;
             EngineMove? bestMove = null;
+            // Captured before the loop mutates `alpha` — needed at the end
+            // to tell an Exact result (true value landed strictly inside the
+            // caller's original window) from an Upper-bound one (no move
+            // beat the caller's original alpha, so we only know the real
+            // value is <= maxMoveValue), the same distinction CheckTable
+            // relies on when it later probes this entry.
+            int originalAlpha = alpha;
 
             foreach (var move in legalMoves)
             {
@@ -112,6 +133,7 @@ public static class Search
                 char? promotion = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove) : null;
 
                 var undo = board.MakeMove(from, to, promotion);
+
                 PushPosition(positionCounts, board.PositionKey);
                 var childOptions = new SearchOptions { Depth = searchOptions.Depth - 1, MovetimeMs = searchOptions.MovetimeMs };
                 // negamax: recurse with bounds swapped-and-negated. Don't
@@ -120,7 +142,7 @@ public static class Search
                 // passing it into a child (a different position after
                 // MakeMove) injects a fabricated "legal move" that corrupts
                 // the board when later applied there.
-                var childEval = Run(board, childOptions, -beta, -alpha, positionCounts, ply + 1);
+                var childEval = Run(board, childOptions, -beta, -alpha, positionCounts, ply + 1, tt: tt);
                 PopPosition(positionCounts, board.PositionKey);
                 board.UnmakeMove(from, to, promotion, undo);
 
@@ -131,12 +153,32 @@ public static class Search
                 {
                     bestMove = move;
                     maxMoveValue = evaluation;
-                    if (evaluation > 900_000) return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
+                    if (evaluation > 900_000)
+                    {
+                        // Didn't examine the remaining siblings (a faster
+                        // mate might be among them — see the mate-exit
+                        // discussion), so this is only a proven floor.
+                        tt?.Insert(board.PositionKey, searchOptions.Depth ?? 0, ply, Bounds.Lower, new SearchEvaluation { Move = bestMove, Value = maxMoveValue });
+                        return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
+                    }
                 }
                 if (maxMoveValue > alpha) alpha = maxMoveValue;
-                if (alpha >= beta) return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
+                if (alpha >= beta)
+                {
+                    // Fail-high: same reasoning as above, remaining siblings
+                    // were never searched, so this is a lower bound, not the
+                    // exact value.
+                    tt?.Insert(board.PositionKey, searchOptions.Depth ?? 0, ply, Bounds.Lower, new SearchEvaluation { Move = bestMove, Value = maxMoveValue });
+                    return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
+                }
             }
 
+            // Loop ran to completion: either every move was searched inside
+            // (originalAlpha, beta) with no cutoff (Exact), or nothing beat
+            // the caller's original alpha, meaning the true value is only
+            // known to be <= maxMoveValue (Upper).
+            Bounds finalBound = maxMoveValue > originalAlpha ? Bounds.Exact : Bounds.Upper;
+            tt?.Insert(board.PositionKey, searchOptions.Depth ?? 0, ply, finalBound, new SearchEvaluation { Move = bestMove, Value = maxMoveValue });
             return new SearchEvaluation { Move = bestMove, Value = maxMoveValue };
         }
 
@@ -152,7 +194,8 @@ public static class Search
         Board board,
         SearchOptions searchOptions,
         Dictionary<ulong, PositionInfo> positionCounts,
-        SearchDeadline? externalDeadline = null)
+        SearchDeadline? externalDeadline = null,
+        TranspositionTable? tt = null)
     {
         if (searchOptions.MovetimeMs is null) throw new Exception("Movetime cannot be null for iterative runs");
 
@@ -171,7 +214,8 @@ public static class Search
                 positionCounts,
                 0,
                 best.Move,
-                deadline);
+                deadline,
+                tt);
             if (candidate.Move is not null) best = candidate;
             if (candidate.Value > 900_000) break;
             depth++;

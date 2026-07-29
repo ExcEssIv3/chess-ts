@@ -72,22 +72,92 @@ public static partial class EngineInterop
         var positionCounts = new Dictionary<ulong, PositionInfo>();
         Search.PushPosition(positionCounts, board.PositionKey);
 
-        if (!string.IsNullOrEmpty(moves))
+        foreach (var moveStr in SplitMoves(moves))
         {
-            foreach (var moveStr in moves.Split('|'))
-            {
-                string from = moveStr.Substring(0, 2);
-                string to = moveStr.Substring(2, 2);
-                char? promotionChar = moveStr.Length > 4 ? moveStr[4] : null;
-
-                ulong fromBit = 1UL << Utils.AlgebraicToSquare(from);
-                ulong toBit = 1UL << Utils.AlgebraicToSquare(to);
-                board.MakeMove(fromBit, toBit, promotionChar);
-                Search.PushPosition(positionCounts, board.PositionKey);
-            }
+            ApplyMoveString(board, moveStr);
+            Search.PushPosition(positionCounts, board.PositionKey);
         }
 
         return (board, positionCounts);
+    }
+
+    // Last position built by GetOrBuildPosition, kept alive across calls
+    // instead of being rebuilt from move 1 every time (see that method).
+    private static string? _cachedStartFen;
+    private static string[] _cachedMoves = System.Array.Empty<string>();
+    private static Board? _cachedBoard;
+    private static Dictionary<ulong, PositionInfo>? _cachedPositionCounts;
+
+    // Lives for as long as this WASM module is loaded (the whole browser
+    // session/game — see engine.worker.ts, which boots the module once and
+    // reuses it for every command), same lifetime as the position cache
+    // above. Deliberately not owned by Board: a Board is thrown away and
+    // rebuilt constantly (ApplyMove, ReplayHistory's fallback path, every
+    // TestRunner check), and a transposition table's whole value is
+    // persisting across many of those, not living/dying with any one of them.
+    private static readonly TranspositionTable _tt = new(sizeMb: 32);
+
+    /// <summary>
+    /// Same result as ReplayHistory(startFen, moves), but reuses the
+    /// previous call's Board/positionCounts when `moves` is exactly that
+    /// call's move list plus some new moves appended (the common case: one
+    /// more engine move and one more opposing move since we last searched) —
+    /// applying just the new suffix instead of replaying the whole game.
+    /// Falls back to a full ReplayHistory rebuild whenever that doesn't
+    /// hold (first call, a new game, a pasted FEN, or history that
+    /// diverged from what's cached), so this is always correct, only
+    /// sometimes faster.
+    ///
+    /// internal (not private): UciEngine.Program's HandleGo calls this
+    /// instead of ReplayHistory directly for the same reason FindBestMove
+    /// does — GameStatus still uses ReplayHistory/a fresh Board, since it's
+    /// a one-off legality/repetition check, not a hot search path.
+    /// </summary>
+    internal static (Board board, Dictionary<ulong, PositionInfo> positionCounts) GetOrBuildPosition(string startFen, string moves)
+    {
+        string[] moveList = SplitMoves(moves);
+
+        if (_cachedBoard is not null && _cachedStartFen == startFen && IsExtensionOf(moveList, _cachedMoves))
+        {
+            for (int i = _cachedMoves.Length; i < moveList.Length; i++)
+            {
+                ApplyMoveString(_cachedBoard, moveList[i]);
+                Search.PushPosition(_cachedPositionCounts!, _cachedBoard.PositionKey);
+            }
+            _cachedMoves = moveList;
+            return (_cachedBoard, _cachedPositionCounts!);
+        }
+
+        var (board, positionCounts) = ReplayHistory(startFen, moves);
+        _cachedStartFen = startFen;
+        _cachedMoves = moveList;
+        _cachedBoard = board;
+        _cachedPositionCounts = positionCounts;
+        return (board, positionCounts);
+    }
+
+    private static bool IsExtensionOf(string[] moveList, string[] cachedMoves)
+    {
+        if (moveList.Length < cachedMoves.Length) return false;
+        for (int i = 0; i < cachedMoves.Length; i++)
+        {
+            if (moveList[i] != cachedMoves[i]) return false;
+        }
+        return true;
+    }
+
+    private static string[] SplitMoves(string moves) =>
+        string.IsNullOrEmpty(moves) ? System.Array.Empty<string>() : moves.Split('|');
+
+    private static void ApplyMoveString(Board board, string moveStr)
+    {
+        string from = moveStr.Substring(0, 2);
+        string to = moveStr.Substring(2, 2);
+        char? promotionChar = moveStr.Length > 4 ? moveStr[4] : null;
+
+        ulong fromBit = 1UL << Utils.AlgebraicToSquare(from);
+        ulong toBit = 1UL << Utils.AlgebraicToSquare(to);
+        board.MakeMove(fromBit, toBit, promotionChar);
     }
 
     /// <summary>
@@ -105,17 +175,17 @@ public static partial class EngineInterop
     [JSExport]
     internal static string FindBestMove(string startFen, string moves, int depth, int movetimeMs)
     {
-        var (board, positionCounts) = ReplayHistory(startFen, moves);
+        var (board, positionCounts) = GetOrBuildPosition(startFen, moves);
 
         SearchEvaluation result;
         if (movetimeMs > 0)
         {
-            result = Search.RunIterative(board, new SearchOptions { MovetimeMs = movetimeMs }, positionCounts);
+            result = Search.RunIterative(board, new SearchOptions { MovetimeMs = movetimeMs }, positionCounts, tt: _tt);
         }
         else
         {
             var options = new SearchOptions { Depth = depth > 0 ? depth : null };
-            result = Search.Run(board, options, -Infinity, Infinity, positionCounts, 0);
+            result = Search.Run(board, options, -Infinity, Infinity, positionCounts, 0, tt: _tt);
         }
 
         if (result.Move is null)

@@ -16,6 +16,7 @@
     <Compile Include="../Evaluation.cs" />
     <Compile Include="../PieceSquareTables.cs" />
     <Compile Include="../Search.cs" />
+    <Compile Include="../TranspositionTable.cs" />
     <Compile Include="../EngineInterop.cs" />
   </ItemGroup>
 </Project>
