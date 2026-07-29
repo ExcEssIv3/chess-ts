@@ -241,6 +241,44 @@ Console.WriteLine("=== Zobrist PositionKey consistency across make/unmake ===");
 }
 
 Console.WriteLine();
+Console.WriteLine("=== King-drive bonus: closer king scores higher, without dominating material ===");
+{
+    // KRK, Black king boxed into a8. Comparing White king at e6 (distance 4
+    // from a8) vs b6 (distance 2) isolates just the king-drive bonus (same
+    // material, same rook) to confirm rescaling from 800cp to 160cp still
+    // rewards closing the box without swinging the eval by pawns' worth.
+    int evalFar = Evaluation.EvaluatePosition(new Board("k7/8/4K3/8/8/8/8/7R w - - 0 1"));
+    int evalNear = Evaluation.EvaluatePosition(new Board("k7/8/1K6/8/8/8/8/7R w - - 0 1"));
+    Console.WriteLine($"White king e6 (distance 4): eval={evalFar}");
+    Console.WriteLine($"White king b6 (distance 2): eval={evalNear}");
+    bool closerIsBetter = evalNear > evalFar;
+    bool swingIsModest = Math.Abs(evalNear - evalFar) <= 160;
+    Console.WriteLine($"closer king scores higher -> {(closerIsBetter ? "PASS" : "FAIL")}");
+    Console.WriteLine($"swing between the two stays within the 160cp cap -> {(swingIsModest ? "PASS" : "FAIL")}");
+}
+
+Console.WriteLine();
+Console.WriteLine("=== Single-legal-move root fast path: mover-relative sign, root-only ===");
+{
+    // Black king a8, in check from Qa1 along the a-file, with Nd7 covering
+    // b8 — a7 stays illegal (same file as the checking queen) and b8 is
+    // covered by the knight, leaving Kb7 as the only legal move. White is
+    // up a queen and knight, so from Black's (the mover's) perspective this
+    // should score as a large negative number, not a large positive one.
+    var board = new Board("k7/3N4/8/8/8/8/8/Q3K3 b - - 0 1");
+    var legal = Movegen.FindLegalMoves(board);
+    bool exactlyOneLegalMove = legal.Count == 1;
+    Console.WriteLine($"exactly one legal move for Black -> {(exactlyOneLegalMove ? "PASS" : "FAIL")} (count={legal.Count})");
+
+    var result = Search.Run(board, new SearchOptions { Depth = 3 }, -1_000_000 + 1, 1_000_000, new Dictionary<ulong, PositionInfo>(), 0);
+    bool foundKb7 = result.Move is not null && result.Move.Value.From == Utils.AlgebraicToSquare("a8") && result.Move.Value.To == Utils.AlgebraicToSquare("b7");
+    bool scoredAsBadForBlack = result.Value < -400; // mover-relative: Black is down a queen+knight
+    Console.WriteLine($"move={(result.Move is not null ? $"{Utils.SquareToAlgebraic(result.Move.Value.From)}{Utils.SquareToAlgebraic(result.Move.Value.To)}" : "none")} value={result.Value}");
+    Console.WriteLine($"found Kb7 -> {(foundKb7 ? "PASS" : "FAIL")}");
+    Console.WriteLine($"value is mover-relative (large negative for Black, not positive) -> {(scoredAsBadForBlack ? "PASS" : "FAIL")}");
+}
+
+Console.WriteLine();
 Console.WriteLine("=== ApplyMove-equivalent smoke test (e2e4) ===");
 {
     var board = new Board(StartFen);

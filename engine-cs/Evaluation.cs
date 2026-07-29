@@ -104,6 +104,11 @@ public static class Evaluation
 
         int enemyKingPosition = Utils.BitToSquare(isWhiteKing ? board.BKing : board.WKing);
         int distance = CalculateDistance(realSquare, enemyKingPosition);
-        return baseValue + (800 - distance * 100) * (MaxPhase - board.PhaseSum) / MaxPhase;
+        // Capped at 160cp (adjacent kings, full endgame phase) rather than 800 —
+        // enough to still dominate KingEg's own ~119cp best-to-worst-square
+        // spread (so the winning king isn't deterred from walking into a bad
+        // PST square to close the box on a cornered enemy king), without
+        // swinging the eval by most of a queen's worth of material on its own.
+        return baseValue + (160 - distance * 20) * (MaxPhase - board.PhaseSum) / MaxPhase;
     }
 }

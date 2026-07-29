@@ -85,6 +85,18 @@ public static class Search
         {
             bool inCheck = Movegen.CheckDanger(board, board.WhiteToMove ? board.WKing : board.BKing, !board.WhiteToMove);
             return new SearchEvaluation { Move = null, Value = inCheck ? -1_000_000 + ply: 0 };
+        } if (legalMoves.Count == 1 && ply == 0)
+        {
+            // Only at the root: a forced reply deeper in the tree (e.g. the
+            // only legal escape from check) is exactly the kind of position
+            // worth searching deeper, not cutting short on a flat eval — but
+            // at the root there's no decision to make either way, so skip
+            // straight to a leaf eval rather than spending time budget on it.
+            // Value must be mover-relative (negamax convention), like every
+            // other return in this function — see GetOrComputeEval's same
+            // perspective flip for the leaf-eval case.
+            int perspective = board.WhiteToMove ? 1 : -1;
+            return new SearchEvaluation { Move = legalMoves[0], Value = Evaluation.EvaluatePosition(board) * perspective };
         }
 
         // JS `if (searchOptions.depth)` is falsy for both undefined AND 0 —
@@ -204,6 +216,11 @@ public static class Search
         SearchEvaluation best = default;
         int depth = 1;
 
+        // early termination related logic, if move and score are stable, we can return
+        int unchanged = 0;
+        int[] previousScores = [0,0,0];
+        int scoreIndex = 0;
+
         do
         {
             var candidate = Run(
@@ -216,8 +233,37 @@ public static class Search
                 best.Move,
                 deadline,
                 tt);
-            if (candidate.Move is not null) best = candidate;
+            previousScores[scoreIndex] = candidate.Value;
+            if (candidate.Move is not null && (best.Move is null || candidate.Move.Value != best.Move.Value)) {
+                best = candidate;
+                unchanged = 0;
+            // if proper depth reached and changes haven't been applied in a while, check if score is stable
+            } else if (unchanged >= 3 && depth > 4)
+            {
+                float previousScoresSum = 0f;
+                foreach(var score in previousScores)
+                {
+                    previousScoresSum += score;
+                }
+                bool escape = false;
+                float previousScoresAverage = previousScoresSum / 3f;
+                foreach (var score in previousScores)
+                {
+                    if (Math.Abs(previousScoresAverage - score) > 30f) {
+                        escape = true;
+                        break;
+                    }
+                }
+                if (!escape) return best;
+            }
+            {
+                unchanged++;
+            }
             if (candidate.Value > 900_000) break;
+            if (scoreIndex >= 2)
+            {
+                scoreIndex = 0;
+            } else scoreIndex++;
             depth++;
         } while (!deadline.Expired);
 
@@ -331,4 +377,5 @@ public static class Search
         positionCounts[key] = info;
         return eval;
     }
+
 }

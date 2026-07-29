@@ -4,18 +4,11 @@ using System.Collections.Generic;
 namespace EngineCs;
 
 /// <summary>Promotion code: 0=rook, 1=knight, 2=bishop, 3=queen, -1=not a promotion.</summary>
-public readonly struct EngineMove
+public readonly record struct EngineMove(int From, int To, int Promotion = -1)
 {
-    public readonly int From;
-    public readonly int To;
-    public readonly int Promotion;
-
-    public EngineMove(int from, int to, int promotion = -1)
-    {
-        From = from;
-        To = to;
-        Promotion = promotion;
-    }
+    public readonly int From = From;
+    public readonly int To = To;
+    public readonly int Promotion = Promotion;
 }
 
 /// <summary>
