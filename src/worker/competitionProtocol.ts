@@ -18,7 +18,12 @@ export type CompetitionCommand =
 
 export type CompetitionEvent =
   | { type: "ready" }
-  | { type: "bestMove"; move: string }
+  // value is White-relative (positive = good for White), same convention
+  // used by tsEngineProtocol.ts's bestMove — undefined for a comparison
+  // build (see scripts/build-compare-engine.ts) checked out from before
+  // EngineInterop.FindBestMoveWithEval existed (see competitionEngine.worker.ts's
+  // supportsEval fallback).
+  | { type: "bestMove"; move: string; value?: number }
   | { type: "moveApplied"; fen: string }
   | { type: "illegalMove" }
   | { type: "status"; status: "ongoing" | "checkmate" | "stalemate" | "threefold-repetition" }

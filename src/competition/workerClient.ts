@@ -40,10 +40,15 @@ export class WorkerClient {
     await this.send({ type: "init", wasmBasePath });
   }
 
-  async findBestMove(fen: string, startFen: string, moves: string[], movetimeMs: number): Promise<string> {
+  async findBestMove(
+    fen: string,
+    startFen: string,
+    moves: string[],
+    movetimeMs: number
+  ): Promise<{ move: string; value?: number }> {
     const event = await this.send({ type: "findBestMove", fen, startFen, moves, movetimeMs });
     if (event.type !== "bestMove") throw new Error(`Expected bestMove, got ${event.type}`);
-    return event.move;
+    return { move: event.move, value: event.value };
   }
 
   async applyMove(fen: string, from: string, to: string, promotion?: string): Promise<string> {

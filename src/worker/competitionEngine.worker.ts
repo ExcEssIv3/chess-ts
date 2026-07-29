@@ -11,6 +11,10 @@ import type { CompetitionCommand, CompetitionEvent } from "./competitionProtocol
 interface EngineCsExports {
   ApplyMove(fen: string, from: string, to: string, promotion: string | null): string;
   FindBestMove(startFen: string, moves: string, depth: number, movetimeMs: number): string;
+  // Not actually guaranteed present — same caveat as FindBestMove's history
+  // shape below: a comparison build predating this export will throw
+  // "not a function" when called, caught by the supportsEval fallback.
+  FindBestMoveWithEval(startFen: string, moves: string, depth: number, movetimeMs: number): string;
   GameStatus(startFen: string, moves: string): string;
 }
 
@@ -38,6 +42,52 @@ let enginePromise: Promise<EngineCsExports> | null = null;
 // one if it throws, then remembered for the rest of this worker's lifetime
 // (one worker instance = one competitor's build for the whole match/batch).
 let supportsHistory: boolean | null = null;
+
+// Same idea as supportsHistory, one tier up: a comparison build may support
+// history-aware FindBestMove but predate FindBestMoveWithEval (added later,
+// for the eval display on the Engine Competition page). Detected/remembered
+// the same way — try the richer shape once, fall back if it throws.
+let supportsEval: boolean | null = null;
+
+// Parses "e2e4 36" / "e7e8q -14" (see EngineInterop.FindBestMoveWithEval) —
+// splitting on the *last* space rather than the first in case a future move
+// encoding ever contains one, though none does today.
+function parseMoveWithEval(raw: string): { move: string; value: number } {
+  const spaceIdx = raw.lastIndexOf(" ");
+  return { move: raw.slice(0, spaceIdx), value: Number(raw.slice(spaceIdx + 1)) };
+}
+
+async function resolveMove(
+  engine: EngineCsExports,
+  cmd: Extract<CompetitionCommand, { type: "findBestMove" }>
+): Promise<{ move: string; value?: number }> {
+  const legacyFindBestMove = engine.FindBestMove as unknown as LegacyFindBestMove;
+
+  if (supportsEval !== false && supportsHistory !== false) {
+    try {
+      const raw = engine.FindBestMoveWithEval(cmd.startFen, serializeMoves(cmd.moves), 0, cmd.movetimeMs);
+      supportsEval = true;
+      supportsHistory = true;
+      return parseMoveWithEval(raw);
+    } catch {
+      supportsEval = false;
+      // Fall through — this build might still support plain history-aware
+      // FindBestMove even without the WithEval export.
+    }
+  }
+
+  if (supportsHistory !== false) {
+    try {
+      const move = engine.FindBestMove(cmd.startFen, serializeMoves(cmd.moves), 0, cmd.movetimeMs);
+      supportsHistory = true;
+      return { move };
+    } catch {
+      supportsHistory = false;
+    }
+  }
+
+  return { move: legacyFindBestMove(cmd.fen, 0, cmd.movetimeMs) };
+}
 
 async function loadEngine(wasmBasePath: string): Promise<EngineCsExports> {
   const base = import.meta.env.BASE_URL;
@@ -72,21 +122,8 @@ self.addEventListener("message", async (e: MessageEvent<CompetitionCommand>) => 
 
       case "findBestMove": {
         const engine = await getEngine();
-        const legacyFindBestMove = engine.FindBestMove as unknown as LegacyFindBestMove;
-
-        let move: string;
-        if (supportsHistory === false) {
-          move = legacyFindBestMove(cmd.fen, 0, cmd.movetimeMs);
-        } else {
-          try {
-            move = engine.FindBestMove(cmd.startFen, serializeMoves(cmd.moves), 0, cmd.movetimeMs);
-            supportsHistory = true;
-          } catch {
-            supportsHistory = false;
-            move = legacyFindBestMove(cmd.fen, 0, cmd.movetimeMs);
-          }
-        }
-        post({ type: "bestMove", move });
+        const { move, value } = await resolveMove(engine, cmd);
+        post({ type: "bestMove", move, value });
         break;
       }
 

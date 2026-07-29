@@ -78,6 +78,12 @@
         padding-left: 20px;
         font-size: 13px;
       }
+      #eval-display {
+        text-align: center;
+        font-size: 15px;
+        font-weight: bold;
+        margin-top: 8px;
+      }
     </style>
   </head>
   <body>
@@ -150,7 +156,6 @@
         <button id="live-start" type="button">Start live game</button>
         <button id="live-stop" type="button" disabled>Stop</button>
         <div id="live-status"></div>
-        <div id="board-wrapper"><div id="board"></div></div>
       </div>
 
       <div id="batch-panel" class="hidden">
@@ -167,6 +172,13 @@
         </table>
         <ul id="batch-log"></ul>
       </div>
+
+      <!-- Shared between live and batch modes: batch shows whichever game
+           in the run is currently in progress, same spectator board. -->
+      <div id="board-wrapper"><div id="board"></div></div>
+      <!-- White-relative eval after the last move played, from whichever
+           engine just moved — see EngineInterop.FindBestMoveWithEval. -->
+      <div id="eval-display">Eval: —</div>
     </div>
     <script
       src="https://code.jquery.com/jquery-3.7.1.min.js"

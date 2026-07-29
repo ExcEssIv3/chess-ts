@@ -1,6 +1,11 @@
 import { MatchSession, type BuildId, type Competitor, type EngineRef, type GameResult } from "./competition/match";
+import { OPENING_BOOK } from "./competition/openings";
 import type { TsEngineVersion } from "./worker/tsEngineProtocol";
 import { createBoard, type ChessboardInstance } from "./ui/board";
+
+function pickRandom<T>(items: T[]): T {
+  return items[Math.floor(Math.random() * items.length)];
+}
 
 interface CompareManifest {
   label: string;
@@ -94,6 +99,26 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+const MATE_THRESHOLD = 900_000;
+
+// value is White-relative centipawns (see EngineInterop.FindBestMoveWithEval)
+// except near mate, where Search.cs's ply-adjusted mate scoring means the
+// raw number is a distance-to-mate encoding, not a material count — shown as
+// "M" rather than a nonsensical pawn count. Undefined for competitors that
+// don't report an eval yet (frozen TS versions v1..v4, or a comparison WASM
+// build predating FindBestMoveWithEval — see competitionEngine.worker.ts).
+function formatEval(value: number | undefined): string {
+  if (value === undefined) return "—";
+  if (Math.abs(value) > MATE_THRESHOLD) return value > 0 ? "+M" : "-M";
+  const pawns = value / 100;
+  return (pawns >= 0 ? "+" : "") + pawns.toFixed(2);
+}
+
+const evalDisplayEl = document.getElementById("eval-display")!;
+function updateEvalDisplay(value: number | undefined): void {
+  evalDisplayEl.textContent = `Eval: ${formatEval(value)}`;
+}
+
 renderCompareStatus();
 
 // --- Mode toggle ---
@@ -112,7 +137,16 @@ document.getElementById("mode-batch")?.addEventListener("change", () => {
 
 // --- Live single-game mode ---
 
+// Shared spectator board — both live and batch modes draw into the same
+// #board element (see competition.html); no drag handlers wired, dragStart
+// always returns false, so this is purely a visualization of moves applied
+// by match.ts.
 let board: ChessboardInstance | undefined;
+function getBoard(): ChessboardInstance {
+  if (!board) board = createBoard({ containerId: "board", onUserMove: () => {}, onDragStart: () => false });
+  return board;
+}
+
 let liveSession: MatchSession | null = null;
 let liveStopRequested = false;
 
@@ -126,23 +160,27 @@ liveStartBtn.addEventListener("click", async () => {
   liveStopRequested = false;
   liveStatusEl.textContent = "Loading engines…";
 
-  if (!board) {
-    // Spectator board: no drag handlers wired, dragStart always returns
-    // false, so this is purely a visualization of moves applied by match.ts.
-    board = createBoard({ containerId: "board", onUserMove: () => {}, onDragStart: () => false });
-  }
+  const board = getBoard();
   board.position("start");
+  updateEvalDisplay(undefined);
 
   const a = readCompetitor("a");
   const b = readCompetitor("b");
 
   try {
     liveSession = await MatchSession.create(a, b);
-    liveStatusEl.textContent = "Playing…";
+    const resolvedOpenings = await liveSession.resolveOpeningBook(OPENING_BOOK);
+    const { opening, fen: openingFen } = pickRandom(resolvedOpenings);
+    board.position(openingFen);
+    liveStatusEl.textContent = `Playing (${opening.name})…`;
     const result = await liveSession.playGame(
       true,
       150,
-      (fen) => board?.position(fen),
+      openingFen,
+      (fen, _ply, value) => {
+        board.position(fen);
+        updateEvalDisplay(value);
+      },
       () => liveStopRequested
     );
     liveStatusEl.textContent = describeResult(result, a, b, true);
@@ -179,6 +217,10 @@ batchStartBtn.addEventListener("click", async () => {
   scoreDrawsEl.textContent = "0";
   batchStatusEl.textContent = "Loading engines…";
 
+  const board = getBoard();
+  board.position("start");
+  updateEvalDisplay(undefined);
+
   const a = readCompetitor("a");
   const b = readCompetitor("b");
   const games = parseInt(batchGamesEl.value, 10) || 1;
@@ -188,24 +230,43 @@ batchStartBtn.addEventListener("click", async () => {
   let aWins = 0;
   let bWins = 0;
   let draws = 0;
+  let currentOpeningName = "";
 
   try {
     session = await MatchSession.create(a, b);
+    const resolvedOpenings = await session.resolveOpeningBook(OPENING_BOOK);
     batchStatusEl.textContent = `Running ${games} games…`;
 
-    await session.runBatch(games, maxPlies, (gameNumber, aIsWhite, result) => {
-      if (result.winner === null) draws++;
-      else if ((result.winner === "white") === aIsWhite) aWins++;
-      else bWins++;
+    await session.runBatch(
+      games,
+      maxPlies,
+      (gameNumber, aIsWhite, result) => {
+        if (result.winner === null) draws++;
+        else if ((result.winner === "white") === aIsWhite) aWins++;
+        else bWins++;
 
-      scoreAEl.textContent = String(aWins);
-      scoreBEl.textContent = String(bWins);
-      scoreDrawsEl.textContent = String(draws);
+        scoreAEl.textContent = String(aWins);
+        scoreBEl.textContent = String(bWins);
+        scoreDrawsEl.textContent = String(draws);
 
-      const li = document.createElement("li");
-      li.textContent = `Game ${gameNumber + 1}/${games}: ${describeResult(result, a, b, aIsWhite)}`;
-      batchLogEl.appendChild(li);
-    });
+        const li = document.createElement("li");
+        li.textContent = `Game ${gameNumber + 1}/${games} (${currentOpeningName}): ${describeResult(result, a, b, aIsWhite)}`;
+        batchLogEl.appendChild(li);
+      },
+      (fen, _ply, value) => {
+        board.position(fen);
+        updateEvalDisplay(value);
+      },
+      () => {
+        // Picks (and displays) a fresh random opening for each game in the
+        // batch — called once per game, right before it starts.
+        const { opening, fen } = pickRandom(resolvedOpenings);
+        currentOpeningName = opening.name;
+        board.position(fen);
+        updateEvalDisplay(undefined);
+        return fen;
+      }
+    );
 
     batchStatusEl.textContent = `Done: ${a.label} ${aWins} - ${bWins} ${b.label} (${draws} draws)`;
   } catch (err) {

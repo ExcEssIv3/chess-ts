@@ -15,5 +15,8 @@ export type TsEngineCommand =
 
 export type TsEngineEvent =
   | { type: "ready" }
-  | { type: "bestMove"; move: string }
+  // value is White-relative (positive = good for White), same convention as
+  // EngineCs.EngineInterop.FindBestMoveWithEval — undefined for the frozen
+  // v1..v4 snapshots, which predate SearchResult.value (see tsEngine.worker.ts).
+  | { type: "bestMove"; move: string; value?: number }
   | { type: "error"; message: string };

@@ -43,6 +43,9 @@ export interface SearchOptions {
 
 export interface SearchResult {
   move: string;
+  /** White-relative (positive = good for White), same convention as
+   * EngineCs.EngineInterop.FindBestMoveWithEval, not literal centipawns. */
+  value: number;
 }
 
 export function findBestMove(_fen: string, _options: SearchOptions): SearchResult {
@@ -55,7 +58,8 @@ export function findBestMove(_fen: string, _options: SearchOptions): SearchResul
   const to = squareToAlgebraic(Number(bitToSquare(move.move[1])));
   const promotion = move.move.length === 3 ? promotionCharFromCode(move.move[2], board.whiteToMove) : "";
   return {
-      move: from + to + promotion
+      move: from + to + promotion,
+      value: board.whiteToMove ? move.value : -move.value
   };
 }
 

@@ -33,10 +33,10 @@ export class TsWorkerClient {
     await this.send({ type: "init", version });
   }
 
-  async findBestMove(fen: string, movetimeMs: number): Promise<string> {
+  async findBestMove(fen: string, movetimeMs: number): Promise<{ move: string; value?: number }> {
     const event = await this.send({ type: "findBestMove", fen, movetimeMs });
     if (event.type !== "bestMove") throw new Error(`Expected bestMove, got ${event.type}`);
-    return event.move;
+    return { move: event.move, value: event.value };
   }
 
   terminate(): void {

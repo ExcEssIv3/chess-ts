@@ -4,8 +4,12 @@ import type { TsEngineCommand, TsEngineEvent, TsEngineVersion } from "./tsEngine
 // "latest" live src/engine as a competitor in the Engine Competition page.
 // Only ever asked findBestMove — see tsEngineProtocol.ts's header comment for
 // why applyMove/gameStatus aren't part of this worker's job.
+// `value` is optional: only "latest" (src/engine/index.ts) reports it — the
+// frozen scripts/versions/v1..v4 snapshots predate SearchResult.value and
+// aren't touched (see CLAUDE.md: treat them as a frozen reference), so their
+// findBestMove structurally satisfies this without ever setting `value`.
 interface EngineModule {
-  findBestMove(fen: string, options: { depth?: number; movetimeMs?: number }): { move: string };
+  findBestMove(fen: string, options: { depth?: number; movetimeMs?: number }): { move: string; value?: number };
 }
 
 function loadModule(version: TsEngineVersion): Promise<EngineModule> {
@@ -42,7 +46,7 @@ const MAX_DEPTH = 8;
 // approximated the same way scripts/tournament.ts's pickMove does: increase
 // depth while the wall-clock budget remains, then play the best move from
 // the last depth that finished in time.
-function pickMove(engineModule: EngineModule, fen: string, movetimeMs: number): string {
+function pickMove(engineModule: EngineModule, fen: string, movetimeMs: number): { move: string; value?: number } {
   const start = performance.now();
   let result = engineModule.findBestMove(fen, { depth: 1, movetimeMs });
   let depth = 1;
@@ -52,7 +56,7 @@ function pickMove(engineModule: EngineModule, fen: string, movetimeMs: number): 
     depth++;
     result = engineModule.findBestMove(fen, { depth, movetimeMs: movetimeMs - elapsed });
   }
-  return result.move;
+  return result;
 }
 
 self.addEventListener("message", async (e: MessageEvent<TsEngineCommand>) => {
@@ -67,8 +71,8 @@ self.addEventListener("message", async (e: MessageEvent<TsEngineCommand>) => {
 
       case "findBestMove": {
         const engineModule = await getModule();
-        const move = pickMove(engineModule, cmd.fen, cmd.movetimeMs);
-        post({ type: "bestMove", move });
+        const { move, value } = pickMove(engineModule, cmd.fen, cmd.movetimeMs);
+        post({ type: "bestMove", move, value });
         break;
       }
     }

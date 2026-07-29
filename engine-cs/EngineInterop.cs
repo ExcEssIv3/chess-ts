@@ -160,20 +160,10 @@ public static partial class EngineInterop
         board.MakeMove(fromBit, toBit, promotionChar);
     }
 
-    /// <summary>
-    /// Searches the position reached by replaying `moves` on `startFen` (see
-    /// ReplayHistory) and returns the best move in algebraic form, e.g.
-    /// "e2e4" or "e7e8q" (lowercase promotion letter, uppercase-vs-lowercase
-    /// determined by the mover's color via Utils.PromotionCharFromCode).
-    /// If `movetimeMs` is positive, iterative deepening runs until that time
-    /// budget elapses (see Search.RunIterative) and `depth` is ignored.
-    /// Otherwise searches a fixed `depth` plies (0/negative means "no
-    /// recursion", matching the TS engine's `depth` being left undefined).
-    /// Throws NoLegalMovesError (propagated to JS as a catchable exception)
-    /// if there is no legal move.
-    /// </summary>
-    [JSExport]
-    internal static string FindBestMove(string startFen, string moves, int depth, int movetimeMs)
+    // Shared by FindBestMove and FindBestMoveWithEval so the two JSExports
+    // don't duplicate the search/fallback logic — only how much of the
+    // result they hand back to JS differs.
+    private static (string moveAlgebraic, int whiteRelativeValue) FindBestMoveInternal(string startFen, string moves, int depth, int movetimeMs)
     {
         var (board, positionCounts) = GetOrBuildPosition(startFen, moves);
 
@@ -208,7 +198,54 @@ public static partial class EngineInterop
         string fromAlg = Utils.SquareToAlgebraic(move.From);
         string toAlg = Utils.SquareToAlgebraic(move.To);
         string promo = move.Promotion >= 0 ? Utils.PromotionCharFromCode(move.Promotion, board.WhiteToMove).ToString() : "";
-        return fromAlg + toAlg + promo;
+
+        // result.Value is negamax-style (positive = good for whoever's
+        // moving here). Flipped to White-relative — the usual "+/- from
+        // White's side" convention (like a UCI `score cp`, but anchored to
+        // a fixed color instead of whoever's on move) — since this is meant
+        // for a spectator display where the mover alternates every ply, and
+        // "positive = good for the side that just moved" would flip meaning
+        // from one line to the next.
+        int whiteRelativeValue = board.WhiteToMove ? result.Value : -result.Value;
+        return (fromAlg + toAlg + promo, whiteRelativeValue);
+    }
+
+    /// <summary>
+    /// Searches the position reached by replaying `moves` on `startFen` (see
+    /// ReplayHistory) and returns the best move in algebraic form, e.g.
+    /// "e2e4" or "e7e8q" (lowercase promotion letter, uppercase-vs-lowercase
+    /// determined by the mover's color via Utils.PromotionCharFromCode).
+    /// If `movetimeMs` is positive, iterative deepening runs until that time
+    /// budget elapses (see Search.RunIterative) and `depth` is ignored.
+    /// Otherwise searches a fixed `depth` plies (0/negative means "no
+    /// recursion", matching the TS engine's `depth` being left undefined).
+    /// Throws NoLegalMovesError (propagated to JS as a catchable exception)
+    /// if there is no legal move.
+    /// </summary>
+    [JSExport]
+    internal static string FindBestMove(string startFen, string moves, int depth, int movetimeMs)
+    {
+        var (moveAlgebraic, _) = FindBestMoveInternal(startFen, moves, depth, movetimeMs);
+        return moveAlgebraic;
+    }
+
+    /// <summary>
+    /// Same search as FindBestMove, but the return also carries the
+    /// White-relative evaluation: "e2e4 36" (move, a space, then an int
+    /// centipawn-ish score — same units as Evaluation.EvaluatePosition/
+    /// Search's mate-distance scoring, not literal centipawns). Added for
+    /// the Engine Competition page (src/competition.ts) to show what each
+    /// engine thinks of the position, not just which move it played. A
+    /// comparison build (see scripts/build-compare-engine.ts) checked out
+    /// from before this export existed won't have it — callers need the
+    /// same try/FindBestMove-fallback pattern already used for
+    /// history-support detection (see competitionEngine.worker.ts).
+    /// </summary>
+    [JSExport]
+    internal static string FindBestMoveWithEval(string startFen, string moves, int depth, int movetimeMs)
+    {
+        var (moveAlgebraic, whiteRelativeValue) = FindBestMoveInternal(startFen, moves, depth, movetimeMs);
+        return $"{moveAlgebraic} {whiteRelativeValue}";
     }
 
     /// <summary>

@@ -1,5 +1,6 @@
 import type { TsEngineVersion } from "../worker/tsEngineProtocol";
 import { START_FEN } from "../worker/protocol";
+import type { Opening } from "./openings";
 import { TsWorkerClient } from "./tsWorkerClient";
 import { WorkerClient } from "./workerClient";
 
@@ -61,9 +62,10 @@ async function findBestMove(
   worker: CompetitorWorker,
   moves: string[],
   fen: string,
+  startFen: string,
   movetimeMs: number
-): Promise<string> {
-  if (worker.kind === "wasm") return worker.client.findBestMove(fen, START_FEN, moves, movetimeMs);
+): Promise<{ move: string; value?: number }> {
+  if (worker.kind === "wasm") return worker.client.findBestMove(fen, startFen, moves, movetimeMs);
   return worker.client.findBestMove(fen, movetimeMs);
 }
 
@@ -117,10 +119,29 @@ export class MatchSession {
     return new MatchSession(referee, workerA, workerB, a, b);
   }
 
+  // Replays each opening's book moves through the referee (real WASM
+  // applyMove) to get a guaranteed-legal starting FEN for each one — see
+  // openings.ts for why these are stored as move sequences rather than raw
+  // FEN strings. Meant to be called once per session (openings are static),
+  // not once per game — playGame/runBatch just take the resulting FEN.
+  async resolveOpeningBook(openings: Opening[]): Promise<Array<{ opening: Opening; fen: string }>> {
+    const resolved: Array<{ opening: Opening; fen: string }> = [];
+    for (const opening of openings) {
+      let fen = START_FEN;
+      for (const move of opening.moves) {
+        const { from, to, promotion } = parseMove(move);
+        fen = await this.referee.applyMove(fen, from, to, promotion);
+      }
+      resolved.push({ opening, fen });
+    }
+    return resolved;
+  }
+
   async playGame(
     aIsWhite: boolean,
     maxPlies: number,
-    onMove?: (fen: string, ply: number) => void,
+    startFen: string = START_FEN,
+    onMove?: (fen: string, ply: number, evalValue?: number) => void,
     shouldStop?: () => boolean
   ): Promise<GameResult> {
     const whiteWorker = aIsWhite ? this.workerA : this.workerB;
@@ -128,14 +149,14 @@ export class MatchSession {
     const whiteMovetimeMs = aIsWhite ? this.a.movetimeMs : this.b.movetimeMs;
     const blackMovetimeMs = aIsWhite ? this.b.movetimeMs : this.a.movetimeMs;
 
-    let fen = START_FEN;
+    let fen = startFen;
     const moves: string[] = [];
     let ply = 0;
 
     while (ply < maxPlies) {
       if (shouldStop?.()) return { status: "stopped", winner: null, plies: ply, finalFen: fen };
 
-      const status = await this.referee.gameStatus(START_FEN, moves);
+      const status = await this.referee.gameStatus(startFen, moves);
       if (status !== "ongoing") {
         const winner = status === "checkmate" ? (activeColor(fen) === "w" ? "black" : "white") : null;
         return { status, winner, plies: ply, finalFen: fen };
@@ -145,12 +166,12 @@ export class MatchSession {
       const mover = isWhiteToMove ? whiteWorker : blackWorker;
       const movetimeMs = isWhiteToMove ? whiteMovetimeMs : blackMovetimeMs;
 
-      const move = await findBestMove(mover, moves, fen, movetimeMs);
+      const { move, value } = await findBestMove(mover, moves, fen, startFen, movetimeMs);
       const { from, to, promotion } = parseMove(move);
       fen = await this.referee.applyMove(fen, from, to, promotion);
       moves.push(move);
       ply++;
-      onMove?.(fen, ply);
+      onMove?.(fen, ply, value);
     }
 
     return { status: "max-ply-draw", winner: null, plies: ply, finalFen: fen };
@@ -159,13 +180,16 @@ export class MatchSession {
   async runBatch(
     games: number,
     maxPlies: number,
-    onGameDone?: (gameNumber: number, aIsWhite: boolean, result: GameResult) => void
+    onGameDone?: (gameNumber: number, aIsWhite: boolean, result: GameResult) => void,
+    onMove?: (fen: string, ply: number, evalValue?: number) => void,
+    pickStartFen?: () => string
   ): Promise<MatchTally> {
     const tally: MatchTally = { aWins: 0, bWins: 0, draws: 0 };
 
     for (let g = 0; g < games; g++) {
       const aIsWhite = g % 2 === 0;
-      const result = await this.playGame(aIsWhite, maxPlies);
+      const startFen = pickStartFen ? pickStartFen() : START_FEN;
+      const result = await this.playGame(aIsWhite, maxPlies, startFen, onMove);
 
       if (result.winner === null) {
         tally.draws++;
