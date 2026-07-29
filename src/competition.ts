@@ -18,7 +18,7 @@ interface CompareManifest {
 // an `npm run build:compare-engine -- <ref> <label>` output directory
 // (public/dotnet-engine-<label>/). Add another entry here (and a matching
 // <option> in competition.html) to offer a further comparison slot.
-const COMPARE_LABELS = ["pre-quiescence", "pre-repetition", "pre-mate-scoring", "pre-tt", "pre-king-drive"] as const;
+const COMPARE_LABELS = ["pre-quiescence", "pre-repetition", "pre-mate-scoring", "pre-tt", "pre-king-drive", "king-drive-fix"] as const;
 
 const compareManifests = new Map<string, CompareManifest>();
 
